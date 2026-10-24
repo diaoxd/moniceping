@@ -1,0 +1,43 @@
+# Runtime databases: schema/migrations remain tracked, database instances do not.
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Market data and generated spreadsheet exports
+data/
+*.csv
+*.xlsx
+*.xls
+*.jsonl
+*.parquet
+*.pickle
+*.pkl
+outputs/
+
+# Runtime logs, caches, and temporary files
+*.log
+logs/
+tmp/
+temp/
+.artifact-work/
+coverage/
+node_modules/
+dist/
+build/
+target/
+
+# Local environment and OS files
+.env
+.env.*
+.DS_Store
+
+# Personal/reference materials not part of the application source
+*.pdf
+*.zip
+*.rar
+*.7z
+WechatIMG830.jpeg
+区间套战法网页/
+区间套战法-思维导图.html
