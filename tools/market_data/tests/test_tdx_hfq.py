@@ -9,6 +9,7 @@ VALID_TEXT = """000001 平安银行 日线 后复权
 日期\t开盘\t最高\t最低\t收盘\t成交量\t成交额
 2020/12/30\t10.00\t10.50\t9.80\t10.20\t1000\t10000.50
 2020/12/31\t10.20\t11.30\t10.10\t11.22\t0\t0
+#数据来源:通达信
 """
 
 
@@ -53,6 +54,13 @@ class TdxHfqParserTest(unittest.TestCase):
         with self.assertRaises(MarketDataError) as context:
             parse_tdx_hfq_file(self.write_fixture(text))
         self.assertEqual(context.exception.issues[0].code, "DUPLICATE_OR_UNSORTED_DATE")
+
+    def test_non_comment_short_line_is_still_rejected(self):
+        text = VALID_TEXT.replace("#数据来源:通达信", "损坏的行情行")
+        with self.assertRaises(MarketDataError) as context:
+            parse_tdx_hfq_file(self.write_fixture(text))
+        self.assertEqual(context.exception.issues[0].code, "MISSING_FIELDS")
+        self.assertEqual(context.exception.issues[0].line_number, 5)
 
 
 if __name__ == "__main__":

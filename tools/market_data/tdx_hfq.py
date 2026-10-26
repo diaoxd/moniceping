@@ -130,6 +130,8 @@ def parse_tdx_hfq_file(path: str | Path) -> dict:
     for line_number, row in enumerate(csv.reader(lines[2:], delimiter="\t"), start=3):
         if not row or not any(cell.strip() for cell in row):
             continue
+        if row[0].lstrip().startswith("#"):
+            continue
         if len(row) < 7:
             issues.append(QualityIssue("MISSING_FIELDS", "行情行少于7列", line_number))
             continue
