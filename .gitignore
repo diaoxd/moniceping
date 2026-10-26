@@ -24,6 +24,8 @@ temp/
 .artifact-work/
 coverage/
 node_modules/
+__pycache__/
+*.py[cod]
 dist/
 build/
 target/

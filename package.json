@@ -6,7 +6,9 @@
   "scripts": {
     "check:env": "node scripts/check-environment.mjs",
     "start": "node server.mjs",
-    "test": "node --test"
+    "test": "npm run test:unit && npm run test:data",
+    "test:unit": "node --test",
+    "test:data": "node scripts/run-python-tests.mjs"
   },
   "engines": {
     "node": ">=22 <23"
