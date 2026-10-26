@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "check:env": "node scripts/check-environment.mjs",
     "start": "node server.mjs",
     "test": "node --test"
   },
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22 <23"
   }
 }
