@@ -1,0 +1,197 @@
+import { aggregateMonthlyBars, aggregateWeeklyBars } from "./bar-aggregation.mjs";
+import { settleNextTradingDay } from "../trading/trade-engine.mjs";
+
+export const HISTORY_CONTEXT_BARS = 200;
+export const ALLOWED_SIMULATION_BARS = Object.freeze([150, 200]);
+export const MIN_INITIAL_CAPITAL_CENTS = 1_000_000;
+export const MAX_INITIAL_CAPITAL_CENTS = 1_000_000_000;
+
+function sessionError(code, message) {
+  return Object.assign(new Error(message), { code });
+}
+
+function validateBar(bar, previousDate) {
+  const priceFields = ["openCents", "highCents", "lowCents", "closeCents"];
+  if (!bar || typeof bar.tradeDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(bar.tradeDate)) {
+    throw sessionError("INVALID_MARKET_BAR", "日线交易日期无效");
+  }
+  if (previousDate && bar.tradeDate <= previousDate) {
+    throw sessionError("INVALID_MARKET_BAR", "日线日期必须严格递增且不能重复");
+  }
+  if (!priceFields.every((field) => Number.isSafeInteger(bar[field]) && bar[field] >= 0)) {
+    throw sessionError("INVALID_MARKET_BAR", "日线价格必须是非负整数分");
+  }
+  if (bar.highCents < Math.max(bar.openCents, bar.closeCents)
+    || bar.lowCents > Math.min(bar.openCents, bar.closeCents)
+    || bar.highCents < bar.lowCents) {
+    throw sessionError("INVALID_MARKET_BAR", "日线OHLC关系无效");
+  }
+  if (!Number.isSafeInteger(bar.volume) || bar.volume < 0
+    || !Number.isSafeInteger(bar.amountCents) || bar.amountCents < 0) {
+    throw sessionError("INVALID_MARKET_BAR", "成交量或成交额无效");
+  }
+}
+
+function snapshot(session) {
+  return Object.freeze({
+    visibleIndex: session.visibleIndex,
+    advancesCompleted: session.advancesCompleted,
+    status: session.status,
+    account: Object.freeze({ ...session.account }),
+    position: Object.freeze({ ...session.position }),
+    orders: Object.freeze(session.orders.map((order) => Object.freeze({ ...order }))),
+    fills: Object.freeze(session.fills.map((fill) => Object.freeze({ ...fill }))),
+  });
+}
+
+function assertVersion(session, expectedVersion) {
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== session.version) {
+    throw sessionError("VERSION_CONFLICT", "训练状态版本不一致，请刷新后重试");
+  }
+}
+
+function publicBar(bar, relativeIndex) {
+  return Object.freeze({
+    index: relativeIndex,
+    openCents: bar.openCents,
+    highCents: bar.highCents,
+    lowCents: bar.lowCents,
+    closeCents: bar.closeCents,
+    volume: bar.volume,
+    amountCents: bar.amountCents,
+  });
+}
+
+function publicAggregates(groups) {
+  return Object.freeze(groups.map(({ key: _hiddenDateKey, ...bar }, index) => Object.freeze({ index, ...bar })));
+}
+
+export function createTrainingSession({
+  id,
+  stockCode,
+  stockName,
+  bars,
+  startIndex,
+  simulationBars,
+  initialCapitalCents = 10_000_000,
+  randomSeed = null,
+}) {
+  if (!id || !stockCode || !stockName) throw sessionError("INVALID_SESSION_CONFIG", "训练标识和股票信息不能为空");
+  if (!ALLOWED_SIMULATION_BARS.includes(simulationBars)) {
+    throw sessionError("INVALID_SIMULATION_BARS", "模拟区间只能是150或200根日线");
+  }
+  if (!Number.isSafeInteger(initialCapitalCents)
+    || initialCapitalCents < MIN_INITIAL_CAPITAL_CENTS
+    || initialCapitalCents > MAX_INITIAL_CAPITAL_CENTS) {
+    throw sessionError("INVALID_INITIAL_CAPITAL", "初始资金必须在10,000.00至10,000,000.00元之间");
+  }
+  if (!Array.isArray(bars)) throw sessionError("INVALID_MARKET_DATA", "日线数据不存在");
+  let previousDate = null;
+  bars.forEach((bar) => {
+    validateBar(bar, previousDate);
+    previousDate = bar.tradeDate;
+  });
+  if (!Number.isSafeInteger(startIndex) || startIndex < HISTORY_CONTEXT_BARS) {
+    throw sessionError("INSUFFICIENT_HISTORY", "训练起点前必须有200根日线");
+  }
+  const endIndex = startIndex + simulationBars - 1;
+  if (endIndex >= bars.length) throw sessionError("INSUFFICIENT_FUTURE_BARS", "训练起点后没有足够的模拟日线");
+
+  const internalBars = Object.freeze(bars.map((bar) => Object.freeze({ ...bar })));
+  const initialVisibleIndex = startIndex - 1;
+  const initialClose = internalBars[initialVisibleIndex].closeCents;
+  const session = {
+    id,
+    stockCode,
+    stockName,
+    randomSeed,
+    simulationBars,
+    startIndex,
+    endIndex,
+    visibleIndex: initialVisibleIndex,
+    advancesCompleted: 0,
+    version: 0,
+    status: "running",
+    initialCapitalCents,
+    account: Object.freeze({ cashCents: initialCapitalCents, equityCents: initialCapitalCents }),
+    position: Object.freeze({ quantity: 0, availableQuantity: 0, totalCostCents: 0 }),
+    orders: Object.freeze([]),
+    fills: Object.freeze([]),
+    bars: internalBars,
+    snapshots: Object.freeze([]),
+  };
+  session.account = Object.freeze({ ...session.account, lastPriceCents: initialClose });
+  session.snapshots = Object.freeze([snapshot(session)]);
+  return Object.freeze(session);
+}
+
+export function getPublicTrainingState(session) {
+  const firstVisibleIndex = session.startIndex - HISTORY_CONTEXT_BARS;
+  const visibleBars = session.bars.slice(firstVisibleIndex, session.visibleIndex + 1);
+  const daily = Object.freeze(visibleBars.map((bar, index) => publicBar(bar, index - (HISTORY_CONTEXT_BARS - 1))));
+  return Object.freeze({
+    id: session.id,
+    stockCode: session.stockCode,
+    stockName: session.stockName,
+    status: session.status,
+    version: session.version,
+    simulationBars: session.simulationBars,
+    advancesCompleted: session.advancesCompleted,
+    advancesRemaining: session.simulationBars - session.advancesCompleted,
+    account: Object.freeze({ ...session.account }),
+    position: Object.freeze({ ...session.position }),
+    bars: Object.freeze({
+      daily,
+      weekly: publicAggregates(aggregateWeeklyBars(visibleBars)),
+      monthly: publicAggregates(aggregateMonthlyBars(visibleBars)),
+    }),
+  });
+}
+
+export function advanceTrainingSession(session, expectedVersion) {
+  assertVersion(session, expectedVersion);
+  if (session.status !== "running") throw sessionError("SESSION_NOT_RUNNING", "训练已结束，不能继续推进");
+  if (session.advancesCompleted >= session.simulationBars) throw sessionError("SIMULATION_COMPLETE", "模拟区间已经走完");
+
+  const visibleIndex = session.visibleIndex + 1;
+  const advancesCompleted = session.advancesCompleted + 1;
+  const latestPrice = session.bars[visibleIndex].closeCents;
+  const position = settleNextTradingDay(session.position);
+  const account = Object.freeze({
+    ...session.account,
+    lastPriceCents: latestPrice,
+    equityCents: session.account.cashCents + position.quantity * latestPrice,
+  });
+  const next = {
+    ...session,
+    visibleIndex,
+    advancesCompleted,
+    version: session.version + 1,
+    status: advancesCompleted === session.simulationBars ? "finished" : "running",
+    account,
+    position,
+  };
+  next.snapshots = Object.freeze([...session.snapshots, snapshot(next)]);
+  return Object.freeze(next);
+}
+
+export function rollbackTrainingSession(session, expectedVersion) {
+  assertVersion(session, expectedVersion);
+  if (session.status !== "running") throw sessionError("SESSION_NOT_RUNNING", "训练已结束，不能回退");
+  if (session.position.quantity > 0) throw sessionError("ROLLBACK_BLOCKED_BY_POSITION", "有持仓时不能回退");
+  if (session.advancesCompleted === 0) throw sessionError("ROLLBACK_AT_START", "不能回退到模拟起点之前");
+
+  const previous = session.snapshots.at(-2);
+  return Object.freeze({
+    ...session,
+    visibleIndex: previous.visibleIndex,
+    advancesCompleted: previous.advancesCompleted,
+    status: previous.status,
+    account: Object.freeze({ ...previous.account }),
+    position: Object.freeze({ ...previous.position }),
+    orders: Object.freeze(previous.orders.map((order) => Object.freeze({ ...order }))),
+    fills: Object.freeze(previous.fills.map((fill) => Object.freeze({ ...fill }))),
+    version: session.version + 1,
+    snapshots: Object.freeze(session.snapshots.slice(0, -1)),
+  });
+}
