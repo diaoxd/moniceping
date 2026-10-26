@@ -1,13 +1,26 @@
 import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
 import { createServer } from "node:http";
+import { DatabaseSync } from "node:sqlite";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInsightRepository, createMatchingRepository, createTradeConfigRepository, matchOrder, openDatabase } from "./database.mjs";
+import { createRandomTrainingService } from "./src/application/random-training-service.mjs";
+import { advanceTrainingSession, getPublicTrainingState, rollbackTrainingSession } from "./src/domain/session/training-session.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const dataDirectory = join(root, "data");
 mkdirSync(dataDirectory, { recursive: true });
 const database = openDatabase(join(dataDirectory, "trading-trainer.sqlite"));
+const marketDatabasePath = process.env.MARKET_DATABASE || join(dataDirectory, "market.db");
+let marketDatabase;
+try {
+  marketDatabase = new DatabaseSync(marketDatabasePath);
+  marketDatabase.exec("PRAGMA foreign_keys = ON");
+} catch (error) {
+  console.warn(`行情数据库不可用：${error.message}`);
+}
+const randomTraining = marketDatabase ? createRandomTrainingService({ marketDatabase }) : null;
+const trainingSessions = new Map();
 const insights = createInsightRepository(database);
 const matching = createMatchingRepository(database);
 const tradeConfig = createTradeConfigRepository(database);
@@ -48,7 +61,59 @@ function insightRoute(pathname) {
 
 async function handleApi(request, response, url) {
   if (url.pathname === "/api/health" && request.method === "GET") {
-    sendJson(response, 200, { status: "ok" });
+    sendJson(response, 200, { status: "ok", marketDatabase: Boolean(randomTraining) });
+    return true;
+  }
+
+  if (url.pathname === "/api/random-training-sessions" && request.method === "POST") {
+    if (!randomTraining) {
+      sendJson(response, 503, { error: { code: "MARKET_DATABASE_UNAVAILABLE", message: "行情数据库不可用" } });
+      return true;
+    }
+    try {
+      const body = await readJson(request);
+      const result = randomTraining.create({
+        simulationBars: body.simulationBars === undefined ? 150 : Number(body.simulationBars),
+        seed: body.seed === undefined ? `${Date.now()}` : String(body.seed),
+        initialCapitalCents: body.initialCapitalCents === undefined ? 10_000_000 : Number(body.initialCapitalCents),
+      });
+      trainingSessions.set(result.session.id, result.session);
+      sendJson(response, 201, { ...result.state, candidateCount: result.candidateCount });
+    } catch (error) {
+      sendJson(response, 422, { error: { code: error.code || "TRAINING_CREATE_FAILED", message: error.message } });
+    }
+    return true;
+  }
+
+  const trainingRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)(?:\/(advance|rollback))?$/);
+  if (trainingRoute) {
+    const sessionId = decodeURIComponent(trainingRoute[1]);
+    const action = trainingRoute[2];
+    const session = trainingSessions.get(sessionId);
+    if (!session) {
+      sendJson(response, 404, { error: { code: "TRAINING_SESSION_NOT_FOUND", message: "随机训练会话不存在" } });
+      return true;
+    }
+    try {
+      if (!action && request.method === "GET") {
+        sendJson(response, 200, getPublicTrainingState(session));
+        return true;
+      }
+      if (action && request.method === "POST") {
+        const body = await readJson(request);
+        const expectedVersion = Number(body.expectedVersion);
+        const next = action === "advance"
+          ? advanceTrainingSession(session, expectedVersion)
+          : rollbackTrainingSession(session, expectedVersion);
+        trainingSessions.set(sessionId, next);
+        sendJson(response, 200, getPublicTrainingState(next));
+        return true;
+      }
+      sendJson(response, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "不支持该请求方法" } });
+    } catch (error) {
+      const status = error.code === "VERSION_CONFLICT" ? 409 : 422;
+      sendJson(response, status, { error: { code: error.code || "TRAINING_REQUEST_FAILED", message: error.message } });
+    }
     return true;
   }
 
@@ -183,6 +248,7 @@ server.listen(port, "127.0.0.1", () => {
 function shutdown() {
   server.close(() => {
     database.close();
+    marketDatabase?.close();
     process.exit(0);
   });
 }
