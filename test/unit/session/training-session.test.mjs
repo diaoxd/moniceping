@@ -52,6 +52,7 @@ test("creation exposes exactly 200 historical bars and hides every real date", (
   assert.equal(state.bars.daily.at(-1).index, 0);
   assert.equal(JSON.stringify(state).includes("tradeDate"), false);
   assert.equal(JSON.stringify(state).includes("2020-"), false);
+  assert.equal(state.datesRevealed, false);
 });
 
 test("only 150 or 200 simulation bars are accepted", () => {
@@ -133,7 +134,12 @@ test("the configured final advance finishes the session and prevents further adv
   for (let step = 0; step < 150; step += 1) session = advanceTrainingSession(session, session.version);
   assert.equal(session.status, "finished");
   assert.equal(session.advancesCompleted, 150);
-  assert.equal(getPublicTrainingState(session).bars.daily.length, 350);
+  const state = getPublicTrainingState(session);
+  assert.equal(state.bars.daily.length, 350);
+  assert.equal(state.datesRevealed, true);
+  assert.match(state.bars.daily.at(-1).tradeDate, /^\d{4}-\d{2}-\d{2}$/);
+  assert.match(state.bars.weekly.at(-1).periodStart, /^\d{4}-\d{2}-\d{2}$/);
+  assert.match(state.bars.monthly.at(-1).periodStart, /^\d{4}-\d{2}$/);
   assert.throws(() => advanceTrainingSession(session, session.version), (error) => error.code === "SESSION_NOT_RUNNING");
 });
 

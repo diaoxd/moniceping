@@ -51,9 +51,10 @@ function assertVersion(session, expectedVersion) {
   }
 }
 
-function publicBar(bar, relativeIndex) {
+function publicBar(bar, relativeIndex, revealDates) {
   return Object.freeze({
     index: relativeIndex,
+    ...(revealDates ? { tradeDate: bar.tradeDate } : {}),
     openCents: bar.openCents,
     highCents: bar.highCents,
     lowCents: bar.lowCents,
@@ -63,8 +64,12 @@ function publicBar(bar, relativeIndex) {
   });
 }
 
-function publicAggregates(groups) {
-  return Object.freeze(groups.map(({ key: _hiddenDateKey, ...bar }, index) => Object.freeze({ index, ...bar })));
+function publicAggregates(groups, revealDates) {
+  return Object.freeze(groups.map(({ key, ...bar }, index) => Object.freeze({
+    index,
+    ...(revealDates ? { periodStart: key } : {}),
+    ...bar,
+  })));
 }
 
 export function createTrainingSession({
@@ -129,7 +134,8 @@ export function createTrainingSession({
 export function getPublicTrainingState(session) {
   const firstVisibleIndex = session.startIndex - HISTORY_CONTEXT_BARS;
   const visibleBars = session.bars.slice(firstVisibleIndex, session.visibleIndex + 1);
-  const daily = Object.freeze(visibleBars.map((bar, index) => publicBar(bar, index - (HISTORY_CONTEXT_BARS - 1))));
+  const revealDates = session.status === "finished";
+  const daily = Object.freeze(visibleBars.map((bar, index) => publicBar(bar, index - (HISTORY_CONTEXT_BARS - 1), revealDates)));
   const currentBar = session.bars[session.visibleIndex];
   const maximumBuyQuantity = calculateMaximumBuyQuantity({
     market: {
@@ -146,6 +152,7 @@ export function getPublicTrainingState(session) {
     stockCode: session.stockCode,
     stockName: session.stockName,
     status: session.status,
+    datesRevealed: revealDates,
     version: session.version,
     simulationBars: session.simulationBars,
     advancesCompleted: session.advancesCompleted,
@@ -157,8 +164,8 @@ export function getPublicTrainingState(session) {
     fills: Object.freeze(session.fills.map((fill) => Object.freeze({ ...fill }))),
     bars: Object.freeze({
       daily,
-      weekly: publicAggregates(aggregateWeeklyBars(visibleBars)),
-      monthly: publicAggregates(aggregateMonthlyBars(visibleBars)),
+      weekly: publicAggregates(aggregateWeeklyBars(visibleBars), revealDates),
+      monthly: publicAggregates(aggregateMonthlyBars(visibleBars), revealDates),
     }),
   });
 }
