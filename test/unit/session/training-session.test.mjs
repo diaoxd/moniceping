@@ -126,7 +126,26 @@ test("market trades update session account, position and public audit records", 
   assert.equal(state.position.availableQuantity, 0);
   assert.equal(state.orders.length, 1);
   assert.equal(state.fills[0].fillPriceCents, bought.bars[bought.visibleIndex].closeCents);
+  assert.equal(state.performance.totalFeesCents, state.fills[0].totalFeesCents);
+  assert.equal(state.performance.winRateMillionths, null);
+  assert.equal(state.performance.totalProfitCents, state.account.equityCents - bought.initialCapitalCents);
   assert.throws(() => rollbackTrainingSession(bought, 1), (error) => error.code === "ROLLBACK_BLOCKED_BY_POSITION");
+});
+
+test("performance summarizes realized profit, return and sell win rate", () => {
+  let session = executeTrainingMarketOrder(create(), 0, {
+    id: "buy-order", fillId: "buy-fill", side: "buy", quantity: 100,
+  });
+  session = advanceTrainingSession(session, 1);
+  session = executeTrainingMarketOrder(session, 2, {
+    id: "sell-order", fillId: "sell-fill", side: "sell", quantity: 100,
+  });
+  const state = getPublicTrainingState(session);
+  assert.equal(state.performance.completedTradeCount, 1);
+  assert.equal(state.performance.profitableTradeCount, state.fills[1].realizedProfitCents > 0 ? 1 : 0);
+  assert.equal(state.performance.realizedProfitCents, state.fills[1].realizedProfitCents);
+  assert.equal(state.performance.unrealizedProfitCents, 0);
+  assert.equal(state.performance.totalProfitCents, state.account.equityCents - session.initialCapitalCents);
 });
 
 test("the configured final advance finishes the session and prevents further advance", () => {

@@ -147,6 +147,20 @@ export function getPublicTrainingState(session) {
     account: session.account,
     position: session.position,
   });
+  const sellFills = session.fills.filter((fill) => fill.side === "sell");
+  const profitableSellCount = sellFills.filter((fill) => fill.realizedProfitCents > 0).length;
+  const realizedProfitCents = sellFills.reduce((sum, fill) => sum + fill.realizedProfitCents, 0);
+  const totalProfitCents = session.account.equityCents - session.initialCapitalCents;
+  const performance = Object.freeze({
+    totalProfitCents,
+    realizedProfitCents,
+    unrealizedProfitCents: session.position.quantity * currentBar.closeCents - session.position.totalCostCents,
+    totalFeesCents: session.fills.reduce((sum, fill) => sum + fill.totalFeesCents, 0),
+    returnRateMillionths: Math.round(totalProfitCents / session.initialCapitalCents * 1_000_000),
+    completedTradeCount: sellFills.length,
+    profitableTradeCount: profitableSellCount,
+    winRateMillionths: sellFills.length === 0 ? null : Math.round(profitableSellCount / sellFills.length * 1_000_000),
+  });
   return Object.freeze({
     id: session.id,
     stockCode: session.stockCode,
@@ -162,6 +176,7 @@ export function getPublicTrainingState(session) {
     maximumBuyQuantity,
     orders: Object.freeze(session.orders.map((order) => Object.freeze({ ...order }))),
     fills: Object.freeze(session.fills.map((fill) => Object.freeze({ ...fill }))),
+    performance,
     bars: Object.freeze({
       daily,
       weekly: publicAggregates(aggregateWeeklyBars(visibleBars), revealDates),
