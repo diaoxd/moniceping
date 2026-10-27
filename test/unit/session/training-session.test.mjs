@@ -146,6 +146,32 @@ test("performance summarizes realized profit, return and sell win rate", () => {
   assert.equal(state.performance.realizedProfitCents, state.fills[1].realizedProfitCents);
   assert.equal(state.performance.unrealizedProfitCents, 0);
   assert.equal(state.performance.totalProfitCents, state.account.equityCents - session.initialCapitalCents);
+  assert.equal(state.performance.profitLossRatioMillionths, null);
+});
+
+test("performance calculates profit-loss ratio and maximum peak-to-trough drawdown", () => {
+  const original = create();
+  const session = Object.freeze({
+    ...original,
+    account: Object.freeze({ ...original.account, equityCents: 9_200_000 }),
+    fills: Object.freeze([
+      Object.freeze({ side: "sell", realizedProfitCents: 120_000, totalFeesCents: 500 }),
+      Object.freeze({ side: "sell", realizedProfitCents: 80_000, totalFeesCents: 500 }),
+      Object.freeze({ side: "sell", realizedProfitCents: -50_000, totalFeesCents: 500 }),
+    ]),
+    snapshots: Object.freeze([
+      Object.freeze({ account: Object.freeze({ equityCents: 10_000_000 }) }),
+      Object.freeze({ account: Object.freeze({ equityCents: 11_000_000 }) }),
+      Object.freeze({ account: Object.freeze({ equityCents: 9_900_000 }) }),
+      Object.freeze({ account: Object.freeze({ equityCents: 9_200_000 }) }),
+    ]),
+  });
+  const performance = getPublicTrainingState(session).performance;
+  assert.equal(performance.averageProfitCents, 100_000);
+  assert.equal(performance.averageLossCents, 50_000);
+  assert.equal(performance.profitLossRatioMillionths, 2_000_000);
+  assert.equal(performance.maximumDrawdownCents, 1_800_000);
+  assert.equal(performance.maximumDrawdownMillionths, 163_636);
 });
 
 test("the configured final advance finishes the session and prevents further advance", () => {

@@ -73,6 +73,46 @@ function publicAggregates(groups, revealDates) {
   })));
 }
 
+function calculatePerformance(session, currentBar) {
+  const sellFills = session.fills.filter((fill) => fill.side === "sell");
+  const profitableFills = sellFills.filter((fill) => fill.realizedProfitCents > 0);
+  const losingFills = sellFills.filter((fill) => fill.realizedProfitCents < 0);
+  const realizedProfitCents = sellFills.reduce((sum, fill) => sum + fill.realizedProfitCents, 0);
+  const totalProfitCents = session.account.equityCents - session.initialCapitalCents;
+  const averageProfitCents = profitableFills.length === 0 ? null
+    : Math.round(profitableFills.reduce((sum, fill) => sum + fill.realizedProfitCents, 0) / profitableFills.length);
+  const averageLossCents = losingFills.length === 0 ? null
+    : Math.round(losingFills.reduce((sum, fill) => sum + Math.abs(fill.realizedProfitCents), 0) / losingFills.length);
+  let peakEquityCents = session.initialCapitalCents;
+  let maximumDrawdownCents = 0;
+  let maximumDrawdownMillionths = 0;
+  session.snapshots.forEach(({ account }) => {
+    peakEquityCents = Math.max(peakEquityCents, account.equityCents);
+    const drawdownCents = peakEquityCents - account.equityCents;
+    const drawdownMillionths = Math.round(drawdownCents / peakEquityCents * 1_000_000);
+    if (drawdownMillionths > maximumDrawdownMillionths) {
+      maximumDrawdownCents = drawdownCents;
+      maximumDrawdownMillionths = drawdownMillionths;
+    }
+  });
+  return Object.freeze({
+    totalProfitCents,
+    realizedProfitCents,
+    unrealizedProfitCents: session.position.quantity * currentBar.closeCents - session.position.totalCostCents,
+    totalFeesCents: session.fills.reduce((sum, fill) => sum + fill.totalFeesCents, 0),
+    returnRateMillionths: Math.round(totalProfitCents / session.initialCapitalCents * 1_000_000),
+    completedTradeCount: sellFills.length,
+    profitableTradeCount: profitableFills.length,
+    winRateMillionths: sellFills.length === 0 ? null : Math.round(profitableFills.length / sellFills.length * 1_000_000),
+    averageProfitCents,
+    averageLossCents,
+    profitLossRatioMillionths: averageProfitCents === null || averageLossCents === null
+      ? null : Math.round(averageProfitCents / averageLossCents * 1_000_000),
+    maximumDrawdownCents,
+    maximumDrawdownMillionths,
+  });
+}
+
 export function createTrainingSession({
   id,
   stockCode,
@@ -148,20 +188,7 @@ export function getPublicTrainingState(session) {
     account: session.account,
     position: session.position,
   });
-  const sellFills = session.fills.filter((fill) => fill.side === "sell");
-  const profitableSellCount = sellFills.filter((fill) => fill.realizedProfitCents > 0).length;
-  const realizedProfitCents = sellFills.reduce((sum, fill) => sum + fill.realizedProfitCents, 0);
-  const totalProfitCents = session.account.equityCents - session.initialCapitalCents;
-  const performance = Object.freeze({
-    totalProfitCents,
-    realizedProfitCents,
-    unrealizedProfitCents: session.position.quantity * currentBar.closeCents - session.position.totalCostCents,
-    totalFeesCents: session.fills.reduce((sum, fill) => sum + fill.totalFeesCents, 0),
-    returnRateMillionths: Math.round(totalProfitCents / session.initialCapitalCents * 1_000_000),
-    completedTradeCount: sellFills.length,
-    profitableTradeCount: profitableSellCount,
-    winRateMillionths: sellFills.length === 0 ? null : Math.round(profitableSellCount / sellFills.length * 1_000_000),
-  });
+  const performance = calculatePerformance(session, currentBar);
   const weeklyBars = aggregateWeeklyBars(visibleBars);
   const monthlyBars = aggregateMonthlyBars(visibleBars);
   return Object.freeze({
