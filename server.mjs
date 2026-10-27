@@ -1,11 +1,12 @@
 import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
 import { createServer } from "node:http";
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInsightRepository, createMatchingRepository, createTradeConfigRepository, matchOrder, openDatabase } from "./database.mjs";
 import { createRandomTrainingService } from "./src/application/random-training-service.mjs";
-import { advanceTrainingSession, getPublicTrainingState, rollbackTrainingSession } from "./src/domain/session/training-session.mjs";
+import { advanceTrainingSession, executeTrainingMarketOrder, getPublicTrainingState, rollbackTrainingSession } from "./src/domain/session/training-session.mjs";
 import { openAppDatabase } from "./src/infrastructure/app-database.mjs";
 import { loadTrainingStock } from "./src/infrastructure/market-repository.mjs";
 import { createTrainingSessionRepository } from "./src/infrastructure/training-session-repository.mjs";
@@ -103,7 +104,7 @@ async function handleApi(request, response, url) {
     return true;
   }
 
-  const trainingRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)(?:\/(advance|rollback))?$/);
+  const trainingRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)(?:\/(advance|rollback|trade))?$/);
   if (trainingRoute) {
     const sessionId = decodeURIComponent(trainingRoute[1]);
     const action = trainingRoute[2];
@@ -120,9 +121,12 @@ async function handleApi(request, response, url) {
       if (action && request.method === "POST") {
         const body = await readJson(request);
         const expectedVersion = Number(body.expectedVersion);
-        const next = action === "advance"
-          ? advanceTrainingSession(session, expectedVersion)
-          : rollbackTrainingSession(session, expectedVersion);
+        let next;
+        if (action === "advance") next = advanceTrainingSession(session, expectedVersion);
+        else if (action === "rollback") next = rollbackTrainingSession(session, expectedVersion);
+        else next = executeTrainingMarketOrder(session, expectedVersion, {
+          id: randomUUID(), fillId: randomUUID(), side: body.side, quantity: Number(body.quantity),
+        });
         sessionRepository.save(next, expectedVersion);
         trainingSessions.set(sessionId, next);
         sendJson(response, 200, getPublicTrainingState(next));

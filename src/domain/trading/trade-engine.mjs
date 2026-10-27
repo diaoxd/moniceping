@@ -166,6 +166,22 @@ export function executeMarketOrder({
   });
 }
 
+export function calculateMaximumBuyQuantity({ market, account, position, slippageRateMillionths = 0, feeRules = DEFAULT_FEE_RULES }) {
+  if (!account || !Number.isSafeInteger(account.cashCents) || account.cashCents < 0) return 0;
+  let low = 0;
+  let high = Math.floor(account.cashCents / market.closePriceCents / 100);
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    const result = executeMarketOrder({
+      order: { side: "buy", orderType: "MARKET", quantity: middle * 100 },
+      market, account, position, slippageRateMillionths, feeRules,
+    });
+    if (result.accepted) low = middle;
+    else high = middle - 1;
+  }
+  return low * 100;
+}
+
 export function settleNextTradingDay(position) {
   if (
     !position

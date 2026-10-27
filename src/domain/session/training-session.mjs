@@ -1,5 +1,6 @@
 import { aggregateMonthlyBars, aggregateWeeklyBars } from "./bar-aggregation.mjs";
 import { settleNextTradingDay } from "../trading/trade-engine.mjs";
+import { calculateMaximumBuyQuantity, executeMarketOrder } from "../trading/trade-engine.mjs";
 
 export const HISTORY_CONTEXT_BARS = 200;
 export const ALLOWED_SIMULATION_BARS = Object.freeze([150, 200]);
@@ -129,6 +130,17 @@ export function getPublicTrainingState(session) {
   const firstVisibleIndex = session.startIndex - HISTORY_CONTEXT_BARS;
   const visibleBars = session.bars.slice(firstVisibleIndex, session.visibleIndex + 1);
   const daily = Object.freeze(visibleBars.map((bar, index) => publicBar(bar, index - (HISTORY_CONTEXT_BARS - 1))));
+  const currentBar = session.bars[session.visibleIndex];
+  const maximumBuyQuantity = calculateMaximumBuyQuantity({
+    market: {
+      closePriceCents: currentBar.closeCents,
+      isSuspended: Boolean(currentBar.isSuspended),
+      limitUpPriceCents: currentBar.limitUpPriceCents,
+      limitDownPriceCents: currentBar.limitDownPriceCents,
+    },
+    account: session.account,
+    position: session.position,
+  });
   return Object.freeze({
     id: session.id,
     stockCode: session.stockCode,
@@ -140,6 +152,9 @@ export function getPublicTrainingState(session) {
     advancesRemaining: session.simulationBars - session.advancesCompleted,
     account: Object.freeze({ ...session.account }),
     position: Object.freeze({ ...session.position }),
+    maximumBuyQuantity,
+    orders: Object.freeze(session.orders.map((order) => Object.freeze({ ...order }))),
+    fills: Object.freeze(session.fills.map((fill) => Object.freeze({ ...fill }))),
     bars: Object.freeze({
       daily,
       weekly: publicAggregates(aggregateWeeklyBars(visibleBars)),
@@ -194,4 +209,43 @@ export function rollbackTrainingSession(session, expectedVersion) {
     version: session.version + 1,
     snapshots: Object.freeze(session.snapshots.slice(0, -1)),
   });
+}
+
+export function executeTrainingMarketOrder(session, expectedVersion, { id, fillId, side, quantity }) {
+  assertVersion(session, expectedVersion);
+  if (session.status !== "running") throw sessionError("SESSION_NOT_RUNNING", "训练已结束，不能交易");
+  const bar = session.bars[session.visibleIndex];
+  const result = executeMarketOrder({
+    order: { side, orderType: "MARKET", quantity },
+    market: {
+      closePriceCents: bar.closeCents,
+      isSuspended: Boolean(bar.isSuspended),
+      limitUpPriceCents: bar.limitUpPriceCents,
+      limitDownPriceCents: bar.limitDownPriceCents,
+    },
+    account: session.account,
+    position: session.position,
+  });
+  if (!result.accepted) throw sessionError(result.error.code, result.error.message);
+  const order = Object.freeze({ id, side, orderType: "MARKET", quantity, step: session.advancesCompleted, status: "filled" });
+  const fill = Object.freeze({
+    id: fillId, orderId: id, side, quantity, step: session.advancesCompleted,
+    fillPriceCents: result.fill.fillPriceCents,
+    grossAmountCents: result.fill.grossAmountCents,
+    totalFeesCents: result.fill.totalFeesCents,
+    realizedProfitCents: result.fill.realizedProfitCents,
+  });
+  const orders = Object.freeze([...session.orders, order]);
+  const fills = Object.freeze([...session.fills, fill]);
+  const account = Object.freeze({
+    ...result.account,
+    lastPriceCents: bar.closeCents,
+    equityCents: result.account.cashCents + result.position.quantity * bar.closeCents,
+  });
+  const next = { ...session, version: session.version + 1, account, position: result.position, orders, fills };
+  next.snapshots = Object.freeze([
+    ...session.snapshots.slice(0, -1),
+    snapshot(next),
+  ]);
+  return Object.freeze(next);
 }

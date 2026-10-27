@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { advanceTrainingSession, createTrainingSession, rollbackTrainingSession } from "../../src/domain/session/training-session.mjs";
+import { advanceTrainingSession, createTrainingSession, executeTrainingMarketOrder, rollbackTrainingSession } from "../../src/domain/session/training-session.mjs";
 import { openAppDatabase } from "../../src/infrastructure/app-database.mjs";
 import { createTrainingSessionRepository } from "../../src/infrastructure/training-session-repository.mjs";
 
@@ -61,5 +61,23 @@ test("advance and rollback snapshots survive repository round trips", () => {
   repository.save(rolledBack, 1);
   assert.equal(repository.load(original.id, marketBars).advancesCompleted, 0);
   assert.throws(() => repository.save(advanced, 0), (error) => error.code === "VERSION_CONFLICT");
+  database.close();
+});
+
+test("orders and fills survive repository round trips", () => {
+  const database = openAppDatabase(":memory:");
+  const repository = createTrainingSessionRepository(database);
+  const marketBars = bars();
+  const original = session(marketBars);
+  repository.save(original);
+  const bought = executeTrainingMarketOrder(original, 0, {
+    id: "persisted-order", fillId: "persisted-fill", side: "buy", quantity: 100,
+  });
+  repository.save(bought, 0);
+  const restored = repository.load(original.id, marketBars);
+  assert.equal(restored.orders[0].id, "persisted-order");
+  assert.equal(restored.fills[0].id, "persisted-fill");
+  assert.equal(restored.position.quantity, 100);
+  assert.equal(restored.snapshots.at(-1).orders.length, 1);
   database.close();
 });

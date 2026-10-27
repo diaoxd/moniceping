@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateMarketFillPrice, executeMarketOrder, settleNextTradingDay } from "../../../src/domain/trading/trade-engine.mjs";
+import { calculateMarketFillPrice, calculateMaximumBuyQuantity, executeMarketOrder, settleNextTradingDay } from "../../../src/domain/trading/trade-engine.mjs";
 
 const emptyPosition = Object.freeze({ quantity: 0, availableQuantity: 0, totalCostCents: 0 });
 const normalMarket = Object.freeze({
@@ -33,6 +33,20 @@ test("buy updates cash and cost while T+1 keeps new shares unavailable", () => {
   assert.deepEqual(result.position, { quantity: 1_000, availableQuantity: 0, totalCostCents: 1_000_510 });
   assert.equal(result.fill.fillPriceCents, 1_000);
   assert.equal(result.fill.totalFeesCents, 510);
+});
+
+test("maximum buy quantity uses board lots and reserves all fees", () => {
+  assert.equal(calculateMaximumBuyQuantity({
+    market: normalMarket,
+    account: { cashCents: 1_000_000 },
+    position: emptyPosition,
+  }), 900);
+  const result = execute({
+    order: { side: "buy", orderType: "MARKET", quantity: 900 },
+    account: { cashCents: 1_000_000 },
+  });
+  assert.equal(result.accepted, true);
+  assert.equal(execute({ account: { cashCents: 1_000_000 } }).error.code, "INSUFFICIENT_CASH");
 });
 
 test("advancing to the next trading day releases the full position for sale", () => {

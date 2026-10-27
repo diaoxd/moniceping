@@ -20,8 +20,9 @@ export function createTrainingSessionRepository(database) {
   const insertSnapshot = database.prepare(`
     INSERT INTO session_snapshots (
       session_id, sequence, visible_index, advances_completed, status, cash_cents,
-      equity_cents, last_price_cents, position_quantity, available_quantity, total_cost_cents
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      equity_cents, last_price_cents, position_quantity, available_quantity, total_cost_cents,
+      order_count, fill_count
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const getSession = database.prepare("SELECT * FROM training_sessions WHERE id = ?");
   const getSnapshots = database.prepare("SELECT * FROM session_snapshots WHERE session_id = ? ORDER BY sequence");
@@ -42,10 +43,23 @@ export function createTrainingSessionRepository(database) {
           session.account.cashCents, session.account.equityCents, session.account.lastPriceCents,
           session.position.quantity, session.position.availableQuantity, session.position.totalCostCents);
         database.prepare("DELETE FROM session_snapshots WHERE session_id = ?").run(session.id);
+        database.prepare("DELETE FROM fills WHERE session_id = ?").run(session.id);
+        database.prepare("DELETE FROM orders WHERE session_id = ?").run(session.id);
+        session.orders.forEach((order, index) => database.prepare(`
+          INSERT INTO orders(id, session_id, sequence, side, order_type, quantity, step, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(order.id, session.id, index + 1, order.side, order.orderType, order.quantity, order.step, order.status));
+        session.fills.forEach((fill) => database.prepare(`
+          INSERT INTO fills(id, order_id, session_id, side, quantity, fill_price_cents,
+            gross_amount_cents, total_fees_cents, realized_profit_cents, step)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(fill.id, fill.orderId, session.id, fill.side, fill.quantity, fill.fillPriceCents,
+          fill.grossAmountCents, fill.totalFeesCents, fill.realizedProfitCents, fill.step));
         session.snapshots.forEach((snapshot, sequence) => insertSnapshot.run(
           session.id, sequence, snapshot.visibleIndex, snapshot.advancesCompleted, snapshot.status,
           snapshot.account.cashCents, snapshot.account.equityCents, snapshot.account.lastPriceCents,
           snapshot.position.quantity, snapshot.position.availableQuantity, snapshot.position.totalCostCents,
+          snapshot.orders.length, snapshot.fills.length,
         ));
         database.exec("COMMIT");
       } catch (error) {
@@ -57,13 +71,19 @@ export function createTrainingSessionRepository(database) {
     load(id, bars) {
       const row = getSession.get(id);
       if (!row) return null;
+      const orders = database.prepare(`SELECT id, side, order_type AS orderType, quantity, step, status
+        FROM orders WHERE session_id = ? ORDER BY sequence`).all(id);
+      const fills = database.prepare(`SELECT id, order_id AS orderId, side, quantity,
+        fill_price_cents AS fillPriceCents, gross_amount_cents AS grossAmountCents,
+        total_fees_cents AS totalFeesCents, realized_profit_cents AS realizedProfitCents, step
+        FROM fills WHERE session_id = ? ORDER BY step, id`).all(id);
       const snapshots = getSnapshots.all(id).map((item) => Object.freeze({
         visibleIndex: item.visible_index,
         advancesCompleted: item.advances_completed,
         status: item.status,
         account: Object.freeze({ cashCents: item.cash_cents, equityCents: item.equity_cents, lastPriceCents: item.last_price_cents }),
         position: Object.freeze({ quantity: item.position_quantity, availableQuantity: item.available_quantity, totalCostCents: item.total_cost_cents }),
-        orders: Object.freeze([]), fills: Object.freeze([]),
+        orders: freezeCopies(orders.slice(0, item.order_count)), fills: freezeCopies(fills.slice(0, item.fill_count)),
       }));
       return Object.freeze({
         id: row.id, stockCode: row.stock_code, stockName: row.stock_name, randomSeed: row.random_seed,
@@ -72,7 +92,7 @@ export function createTrainingSessionRepository(database) {
         status: row.status, initialCapitalCents: row.initial_capital_cents,
         account: Object.freeze({ cashCents: row.cash_cents, equityCents: row.equity_cents, lastPriceCents: row.last_price_cents }),
         position: Object.freeze({ quantity: row.position_quantity, availableQuantity: row.available_quantity, totalCostCents: row.total_cost_cents }),
-        orders: freezeCopies([]), fills: freezeCopies([]), bars: freezeCopies(bars), snapshots: Object.freeze(snapshots),
+        orders: freezeCopies(orders), fills: freezeCopies(fills), bars: freezeCopies(bars), snapshots: Object.freeze(snapshots),
       });
     },
   };

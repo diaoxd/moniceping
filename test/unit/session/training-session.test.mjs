@@ -4,6 +4,7 @@ import {
   advanceTrainingSession,
   createTrainingSession,
   getPublicTrainingState,
+  executeTrainingMarketOrder,
   rollbackTrainingSession,
 } from "../../../src/domain/session/training-session.mjs";
 
@@ -112,6 +113,19 @@ test("a position blocks rollback without changing session state", () => {
   const held = Object.freeze({ ...advanced, position: Object.freeze({ quantity: 100, availableQuantity: 100, totalCostCents: 100_000 }) });
   assert.throws(() => rollbackTrainingSession(held, 1), (error) => error.code === "ROLLBACK_BLOCKED_BY_POSITION");
   assert.equal(held.advancesCompleted, 1);
+});
+
+test("market trades update session account, position and public audit records", () => {
+  const bought = executeTrainingMarketOrder(create(), 0, {
+    id: "order-1", fillId: "fill-1", side: "buy", quantity: 100,
+  });
+  const state = getPublicTrainingState(bought);
+  assert.equal(bought.version, 1);
+  assert.equal(state.position.quantity, 100);
+  assert.equal(state.position.availableQuantity, 0);
+  assert.equal(state.orders.length, 1);
+  assert.equal(state.fills[0].fillPriceCents, bought.bars[bought.visibleIndex].closeCents);
+  assert.throws(() => rollbackTrainingSession(bought, 1), (error) => error.code === "ROLLBACK_BLOCKED_BY_POSITION");
 });
 
 test("the configured final advance finishes the session and prevents further advance", () => {
