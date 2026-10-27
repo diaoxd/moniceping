@@ -1,6 +1,7 @@
 import { aggregateMonthlyBars, aggregateWeeklyBars } from "./bar-aggregation.mjs";
 import { settleNextTradingDay } from "../trading/trade-engine.mjs";
 import { calculateMaximumBuyQuantity, executeMarketOrder } from "../trading/trade-engine.mjs";
+import { calculateTechnicalIndicators } from "../indicators/technical-indicators.mjs";
 
 export const HISTORY_CONTEXT_BARS = 200;
 export const ALLOWED_SIMULATION_BARS = Object.freeze([150, 200]);
@@ -161,6 +162,8 @@ export function getPublicTrainingState(session) {
     profitableTradeCount: profitableSellCount,
     winRateMillionths: sellFills.length === 0 ? null : Math.round(profitableSellCount / sellFills.length * 1_000_000),
   });
+  const weeklyBars = aggregateWeeklyBars(visibleBars);
+  const monthlyBars = aggregateMonthlyBars(visibleBars);
   return Object.freeze({
     id: session.id,
     stockCode: session.stockCode,
@@ -177,10 +180,15 @@ export function getPublicTrainingState(session) {
     orders: Object.freeze(session.orders.map((order) => Object.freeze({ ...order }))),
     fills: Object.freeze(session.fills.map((fill) => Object.freeze({ ...fill }))),
     performance,
+    indicators: Object.freeze({
+      daily: calculateTechnicalIndicators(visibleBars),
+      weekly: calculateTechnicalIndicators(weeklyBars),
+      monthly: calculateTechnicalIndicators(monthlyBars),
+    }),
     bars: Object.freeze({
       daily,
-      weekly: publicAggregates(aggregateWeeklyBars(visibleBars), revealDates),
-      monthly: publicAggregates(aggregateMonthlyBars(visibleBars), revealDates),
+      weekly: publicAggregates(weeklyBars, revealDates),
+      monthly: publicAggregates(monthlyBars, revealDates),
     }),
   });
 }

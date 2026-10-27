@@ -1,0 +1,23 @@
+.indicator-modes {
+  align-items: end;
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 4px;
+  height: 34px;
+}
+
+.indicator-modes button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: #687789;
+  cursor: pointer;
+  font-size: 10px;
+  height: 28px;
+  padding: 0 12px;
+}
+
+.indicator-modes button.active {
+  border-color: var(--blue);
+  color: #dbe7f3;
+}
