@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>逐步复盘</title>
+  <link rel="stylesheet" href="review.css">
+</head>
+<body>
+  <header class="topbar">
+    <div><b>交易训练助手</b><span>逐步复盘</span></div>
+    <a href="index.html">返回训练</a>
+  </header>
+  <main>
+    <section class="workspace">
+      <div class="instrument">
+        <div><small>复盘标的</small><h1 id="instrument">--</h1></div>
+        <div class="periods" aria-label="复盘周期">
+          <button class="active" data-period="daily">日线</button>
+          <button data-period="weekly">周线</button>
+          <button data-period="monthly">月线</button>
+        </div>
+      </div>
+      <canvas id="reviewChart"></canvas>
+      <div class="step-controls">
+        <button id="previousStep" aria-label="上一步">←</button>
+        <input id="stepSlider" type="range" min="0" value="0">
+        <button id="nextStep" aria-label="下一步">→</button>
+        <strong id="stepLabel">第 0 步</strong>
+        <span id="dateLabel">--</span>
+      </div>
+      <div class="trade-strip" id="tradeStrip">该步骤暂无成交</div>
+    </section>
+    <aside>
+      <div class="account-grid">
+        <div><span>资产</span><b id="equity">--</b></div>
+        <div><span>现金</span><b id="cash">--</b></div>
+        <div><span>持仓</span><b id="position">--</b></div>
+        <div><span>收益率</span><b id="returnRate">--</b></div>
+      </div>
+      <label>本步骤观察<textarea id="stepNote" maxlength="2000" placeholder="记录当时看到的信号、决策依据和偏差"></textarea></label>
+      <button class="primary" id="saveNote">保存步骤笔记</button>
+      <label>整体复盘总结<textarea id="summary" maxlength="5000" placeholder="总结入场、持仓、退出和风险管理"></textarea></label>
+      <button class="primary" id="saveSummary">保存整体总结</button>
+      <p id="status" role="status"></p>
+    </aside>
+  </main>
+  <script src="review.js"></script>
+</body>
+</html>

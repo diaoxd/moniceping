@@ -6,10 +6,12 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInsightRepository, createMatchingRepository, createTradeConfigRepository, matchOrder, openDatabase } from "./database.mjs";
 import { createRandomTrainingService } from "./src/application/random-training-service.mjs";
+import { createReviewService } from "./src/application/review-service.mjs";
 import { advanceTrainingSession, executeTrainingMarketOrder, getPublicTrainingState, rollbackTrainingSession } from "./src/domain/session/training-session.mjs";
 import { openAppDatabase } from "./src/infrastructure/app-database.mjs";
 import { loadTrainingStock } from "./src/infrastructure/market-repository.mjs";
 import { createTrainingSessionRepository } from "./src/infrastructure/training-session-repository.mjs";
+import { createReviewRepository } from "./src/infrastructure/review-repository.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const dataDirectory = join(root, "data");
@@ -17,6 +19,7 @@ mkdirSync(dataDirectory, { recursive: true });
 const database = openDatabase(join(dataDirectory, "trading-trainer.sqlite"));
 const appDatabase = openAppDatabase(process.env.APP_DATABASE || join(dataDirectory, "app.db"));
 const sessionRepository = createTrainingSessionRepository(appDatabase);
+const reviewRepository = createReviewRepository(appDatabase);
 const marketDatabasePath = process.env.MARKET_DATABASE || join(dataDirectory, "market.db");
 let marketDatabase;
 try {
@@ -43,6 +46,8 @@ function findTrainingSession(sessionId) {
   if (restored) trainingSessions.set(sessionId, restored);
   return restored;
 }
+
+const reviewService = createReviewService({ repository: reviewRepository, loadSession: findTrainingSession });
 
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
@@ -100,6 +105,67 @@ async function handleApi(request, response, url) {
       sendJson(response, 201, { ...result.state, candidateCount: result.candidateCount });
     } catch (error) {
       sendJson(response, 422, { error: { code: error.code || "TRAINING_CREATE_FAILED", message: error.message } });
+    }
+    return true;
+  }
+
+  const sessionReviewsRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)\/reviews$/);
+  if (sessionReviewsRoute) {
+    const sessionId = decodeURIComponent(sessionReviewsRoute[1]);
+    try {
+      if (request.method === "GET") {
+        sendJson(response, 200, { items: reviewService.list(sessionId) });
+        return true;
+      }
+      if (request.method === "POST") {
+        const body = await readJson(request);
+        sendJson(response, 201, reviewService.create(sessionId, {
+          selectedFillId: body.selectedFillId === undefined ? null : String(body.selectedFillId),
+        }));
+        return true;
+      }
+      sendJson(response, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "不支持该请求方法" } });
+    } catch (error) {
+      const status = ["TRAINING_SESSION_NOT_FOUND", "FILL_NOT_FOUND"].includes(error.code) ? 404 : 422;
+      sendJson(response, status, { error: { code: error.code || "REVIEW_REQUEST_FAILED", message: error.message } });
+    }
+    return true;
+  }
+
+  const reviewStepRoute = url.pathname.match(/^\/api\/reviews\/([^/]+)\/steps\/(\d+)$/);
+  if (reviewStepRoute) {
+    const reviewId = decodeURIComponent(reviewStepRoute[1]);
+    const step = Number(reviewStepRoute[2]);
+    try {
+      if (request.method === "GET") {
+        sendJson(response, 200, reviewService.getStep(reviewId, step));
+        return true;
+      }
+      if (request.method === "PUT") {
+        const body = await readJson(request);
+        sendJson(response, 200, reviewService.saveStepNote(reviewId, step, body.content));
+        return true;
+      }
+      sendJson(response, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "不支持该请求方法" } });
+    } catch (error) {
+      const status = ["REVIEW_NOT_FOUND", "REVIEW_STEP_NOT_FOUND", "TRAINING_SESSION_NOT_FOUND"].includes(error.code) ? 404 : 422;
+      sendJson(response, status, { error: { code: error.code || "REVIEW_REQUEST_FAILED", message: error.message } });
+    }
+    return true;
+  }
+
+  const reviewSummaryRoute = url.pathname.match(/^\/api\/reviews\/([^/]+)\/summary$/);
+  if (reviewSummaryRoute) {
+    try {
+      if (request.method !== "PUT") {
+        sendJson(response, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "不支持该请求方法" } });
+        return true;
+      }
+      const body = await readJson(request);
+      sendJson(response, 200, reviewService.saveSummary(decodeURIComponent(reviewSummaryRoute[1]), body.content));
+    } catch (error) {
+      sendJson(response, error.code === "REVIEW_NOT_FOUND" ? 404 : 422,
+        { error: { code: error.code || "REVIEW_REQUEST_FAILED", message: error.message } });
     }
     return true;
   }

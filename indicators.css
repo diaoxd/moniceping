@@ -21,3 +21,13 @@
   border-color: var(--blue);
   color: #dbe7f3;
 }
+
+#reviewBtn {
+  background: #285cbd;
+  border: 0;
+  border-radius: 5px;
+  color: white;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 7px 11px;
+}
