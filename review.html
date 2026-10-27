@@ -9,7 +9,7 @@
 <body>
   <header class="topbar">
     <div><b>交易训练助手</b><span>逐步复盘</span></div>
-    <a href="index.html">返回训练</a>
+    <nav><a href="patterns.html">模式库</a><a href="index.html">返回训练</a></nav>
   </header>
   <main>
     <section class="workspace">
@@ -42,6 +42,17 @@
       <button class="primary" id="saveNote">保存步骤笔记</button>
       <label>整体复盘总结<textarea id="summary" maxlength="5000" placeholder="总结入场、持仓、退出和风险管理"></textarea></label>
       <button class="primary" id="saveSummary">保存整体总结</button>
+      <section class="pattern-form">
+        <h2>提取交易模式</h2>
+        <label>名称<input id="patternName" maxlength="100" placeholder="例如：缩量回踩后建仓"></label>
+        <div class="form-row">
+          <label>分类<select id="patternCategory"><option value="open_position">建仓</option><option value="add_position">加仓</option><option value="reduce_position">减仓</option><option value="close_position">清仓</option></select></label>
+          <label>信心等级<select id="patternConfidence"><option>1</option><option>2</option><option>3</option><option selected>4</option><option>5</option></select></label>
+        </div>
+        <label>触发条件<textarea id="patternTrigger" maxlength="2000" placeholder="什么情况下执行"></textarea></label>
+        <label>失效条件<textarea id="patternInvalidation" maxlength="2000" placeholder="出现什么情况说明判断错误"></textarea></label>
+        <button class="primary" id="savePattern">保存到模式库</button>
+      </section>
       <p id="status" role="status"></p>
     </aside>
   </main>

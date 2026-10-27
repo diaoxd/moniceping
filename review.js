@@ -101,5 +101,27 @@ byId("saveSummary").onclick = async () => {
     byId("status").textContent = "整体总结已保存";
   } catch (error) { byId("status").textContent = error.message; }
 };
+byId("savePattern").onclick = async () => {
+  try {
+    const fill = payload.state.fills.find((item) => item.step === step);
+    const pattern = await requestJson("/api/trading-patterns", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: byId("patternName").value,
+        category: byId("patternCategory").value,
+        displayPeriod: period,
+        triggerConditions: byId("patternTrigger").value,
+        klineFeatures: "", indicatorFeatures: "", volumeFeatures: "", marketContext: "",
+        invalidationConditions: byId("patternInvalidation").value,
+        riskNotes: "", confidence: Number(byId("patternConfidence").value),
+        evidence: {
+          reviewId, fillId: fill?.id || null, startStep: Math.max(payload.minimumStep, step - 5),
+          endStep: step, note: payload.note?.content || "",
+        },
+      }),
+    });
+    byId("status").textContent = `模式“${pattern.name}”已保存，证据 ${pattern.statistics.evidenceCount} 条`;
+  } catch (error) { byId("status").textContent = error.message; }
+};
 window.onresize = draw;
 if (!reviewId) location.replace("random.html"); else loadStep(step);

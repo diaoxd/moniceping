@@ -7,11 +7,13 @@ import { fileURLToPath } from "node:url";
 import { createInsightRepository, createMatchingRepository, createTradeConfigRepository, matchOrder, openDatabase } from "./database.mjs";
 import { createRandomTrainingService } from "./src/application/random-training-service.mjs";
 import { createReviewService } from "./src/application/review-service.mjs";
+import { createPatternService } from "./src/application/pattern-service.mjs";
 import { advanceTrainingSession, executeTrainingMarketOrder, getPublicTrainingState, rollbackTrainingSession } from "./src/domain/session/training-session.mjs";
 import { openAppDatabase } from "./src/infrastructure/app-database.mjs";
 import { loadTrainingStock } from "./src/infrastructure/market-repository.mjs";
 import { createTrainingSessionRepository } from "./src/infrastructure/training-session-repository.mjs";
 import { createReviewRepository } from "./src/infrastructure/review-repository.mjs";
+import { createPatternRepository } from "./src/infrastructure/pattern-repository.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const dataDirectory = join(root, "data");
@@ -20,6 +22,7 @@ const database = openDatabase(join(dataDirectory, "trading-trainer.sqlite"));
 const appDatabase = openAppDatabase(process.env.APP_DATABASE || join(dataDirectory, "app.db"));
 const sessionRepository = createTrainingSessionRepository(appDatabase);
 const reviewRepository = createReviewRepository(appDatabase);
+const patternRepository = createPatternRepository(appDatabase);
 const marketDatabasePath = process.env.MARKET_DATABASE || join(dataDirectory, "market.db");
 let marketDatabase;
 try {
@@ -48,6 +51,9 @@ function findTrainingSession(sessionId) {
 }
 
 const reviewService = createReviewService({ repository: reviewRepository, loadSession: findTrainingSession });
+const patternService = createPatternService({
+  repository: patternRepository, reviewRepository, loadSession: findTrainingSession,
+});
 
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
@@ -166,6 +172,43 @@ async function handleApi(request, response, url) {
     } catch (error) {
       sendJson(response, error.code === "REVIEW_NOT_FOUND" ? 404 : 422,
         { error: { code: error.code || "REVIEW_REQUEST_FAILED", message: error.message } });
+    }
+    return true;
+  }
+
+  if (url.pathname === "/api/trading-patterns") {
+    try {
+      if (request.method === "GET") {
+        sendJson(response, 200, { items: patternService.list(url.searchParams.get("category")) });
+        return true;
+      }
+      if (request.method === "POST") {
+        sendJson(response, 201, patternService.create(await readJson(request)));
+        return true;
+      }
+      sendJson(response, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "不支持该请求方法" } });
+    } catch (error) {
+      const status = ["REVIEW_NOT_FOUND", "TRAINING_SESSION_NOT_FOUND", "FILL_NOT_FOUND"].includes(error.code) ? 404 : 422;
+      sendJson(response, status, { error: { code: error.code || "PATTERN_REQUEST_FAILED", message: error.message } });
+    }
+    return true;
+  }
+
+  const patternRoute = url.pathname.match(/^\/api\/trading-patterns\/([^/]+)(?:\/(evidence))?$/);
+  if (patternRoute) {
+    const patternId = decodeURIComponent(patternRoute[1]);
+    try {
+      if (request.method !== (patternRoute[2] ? "POST" : "PUT")) {
+        sendJson(response, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "不支持该请求方法" } });
+        return true;
+      }
+      const body = await readJson(request);
+      sendJson(response, 200, patternRoute[2]
+        ? patternService.addEvidence(patternId, body)
+        : patternService.update(patternId, body));
+    } catch (error) {
+      const status = ["PATTERN_NOT_FOUND", "REVIEW_NOT_FOUND", "TRAINING_SESSION_NOT_FOUND", "FILL_NOT_FOUND"].includes(error.code) ? 404 : 422;
+      sendJson(response, status, { error: { code: error.code || "PATTERN_REQUEST_FAILED", message: error.message } });
     }
     return true;
   }
