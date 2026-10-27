@@ -6,11 +6,16 @@ import { fileURLToPath } from "node:url";
 import { createInsightRepository, createMatchingRepository, createTradeConfigRepository, matchOrder, openDatabase } from "./database.mjs";
 import { createRandomTrainingService } from "./src/application/random-training-service.mjs";
 import { advanceTrainingSession, getPublicTrainingState, rollbackTrainingSession } from "./src/domain/session/training-session.mjs";
+import { openAppDatabase } from "./src/infrastructure/app-database.mjs";
+import { loadTrainingStock } from "./src/infrastructure/market-repository.mjs";
+import { createTrainingSessionRepository } from "./src/infrastructure/training-session-repository.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const dataDirectory = join(root, "data");
 mkdirSync(dataDirectory, { recursive: true });
 const database = openDatabase(join(dataDirectory, "trading-trainer.sqlite"));
+const appDatabase = openAppDatabase(process.env.APP_DATABASE || join(dataDirectory, "app.db"));
+const sessionRepository = createTrainingSessionRepository(appDatabase);
 const marketDatabasePath = process.env.MARKET_DATABASE || join(dataDirectory, "market.db");
 let marketDatabase;
 try {
@@ -25,6 +30,18 @@ const insights = createInsightRepository(database);
 const matching = createMatchingRepository(database);
 const tradeConfig = createTradeConfigRepository(database);
 const port = Number(process.env.PORT || 4173);
+
+function findTrainingSession(sessionId) {
+  const cached = trainingSessions.get(sessionId);
+  if (cached) return cached;
+  const metadata = appDatabase.prepare("SELECT stock_code AS stockCode FROM training_sessions WHERE id = ?").get(sessionId);
+  if (!metadata || !marketDatabase) return null;
+  const stock = loadTrainingStock(marketDatabase, metadata.stockCode);
+  if (!stock) return null;
+  const restored = sessionRepository.load(sessionId, stock.bars);
+  if (restored) trainingSessions.set(sessionId, restored);
+  return restored;
+}
 
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
@@ -77,6 +94,7 @@ async function handleApi(request, response, url) {
         seed: body.seed === undefined ? `${Date.now()}` : String(body.seed),
         initialCapitalCents: body.initialCapitalCents === undefined ? 10_000_000 : Number(body.initialCapitalCents),
       });
+      sessionRepository.save(result.session);
       trainingSessions.set(result.session.id, result.session);
       sendJson(response, 201, { ...result.state, candidateCount: result.candidateCount });
     } catch (error) {
@@ -89,7 +107,7 @@ async function handleApi(request, response, url) {
   if (trainingRoute) {
     const sessionId = decodeURIComponent(trainingRoute[1]);
     const action = trainingRoute[2];
-    const session = trainingSessions.get(sessionId);
+    const session = findTrainingSession(sessionId);
     if (!session) {
       sendJson(response, 404, { error: { code: "TRAINING_SESSION_NOT_FOUND", message: "随机训练会话不存在" } });
       return true;
@@ -105,6 +123,7 @@ async function handleApi(request, response, url) {
         const next = action === "advance"
           ? advanceTrainingSession(session, expectedVersion)
           : rollbackTrainingSession(session, expectedVersion);
+        sessionRepository.save(next, expectedVersion);
         trainingSessions.set(sessionId, next);
         sendJson(response, 200, getPublicTrainingState(next));
         return true;
@@ -248,6 +267,7 @@ server.listen(port, "127.0.0.1", () => {
 function shutdown() {
   server.close(() => {
     database.close();
+    appDatabase.close();
     marketDatabase?.close();
     process.exit(0);
   });
