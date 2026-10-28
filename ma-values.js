@@ -4,7 +4,7 @@
   function update(){
     const state=JSON.parse(sessionStorage.getItem('randomTrainingState')||'null');
     if(!state)return;
-    const bars=state.bars&&state.bars.daily||[];
+    const activeIndex=[...document.querySelectorAll('.chart-actions .ghost')].findIndex(function(button){return button.classList.contains('active')});const period=['daily','weekly','monthly'][activeIndex>=0?activeIndex:0];const bars=state.bars&&state.bars[period]||[];
     const settings=JSON.parse(localStorage.getItem('trainingIndicatorSettings')||'null')||{periods:periods,enabled:periods.map(function(){return true})};
     const strip=document.querySelector('.indicator-strip');
     if(!strip||!bars.length)return;
