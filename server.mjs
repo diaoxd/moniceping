@@ -227,6 +227,20 @@ async function handleApi(request, response, url) {
     return true;
   }
 
+  const equityCurveRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)\/equity-curve$/);
+  if (equityCurveRoute && request.method === "GET") {
+    const session = findTrainingSession(decodeURIComponent(equityCurveRoute[1]));
+    if (!session) {
+      sendJson(response, 404, { error: { code: "TRAINING_SESSION_NOT_FOUND", message: "随机训练会话不存在" } });
+      return true;
+    }
+    sendJson(response, 200, { items: session.snapshots.map((snapshot, sequence) => ({
+      sequence, step: snapshot.advancesCompleted, equityCents: snapshot.account.equityCents,
+      cashCents: snapshot.account.cashCents, positionQuantity: snapshot.position.quantity,
+    })) });
+    return true;
+  }
+
   const trainingRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)(?:\/(advance|rollback|trade))?$/);
   const reportRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)\/report$/);
   if (reportRoute && request.method === "GET") {
