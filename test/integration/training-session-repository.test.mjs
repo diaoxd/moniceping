@@ -81,3 +81,20 @@ test("orders and fills survive repository round trips", () => {
   assert.equal(restored.snapshots.at(-1).orders.length, 1);
   database.close();
 });
+
+test("repository lists sessions with status, pagination and fill counts", () => {
+  const database = openAppDatabase(":memory:");
+  const repository = createTrainingSessionRepository(database);
+  const marketBars = bars();
+  const first = session(marketBars);
+  const second = createTrainingSession({ ...first, id: "finished-session", stockCode: "000001", stockName: "平安银行" });
+  repository.save(first);
+  repository.save(executeTrainingMarketOrder(second, 0, { id: "order-1", fillId: "fill-1", side: "buy", quantity: 100 }));
+  const all = repository.list({ limit: 1, offset: 0 });
+  assert.equal(all.length, 1);
+  assert.equal(repository.count(), 2);
+  assert.equal(repository.list({ status: "running" }).length, 2);
+  assert.equal(repository.list({ status: "finished" }).length, 0);
+  assert.equal(repository.list({}).find((item) => item.id === "finished-session").fillCount, 1);
+  database.close();
+});

@@ -26,6 +26,13 @@ export function createTrainingSessionRepository(database) {
   `);
   const getSession = database.prepare("SELECT * FROM training_sessions WHERE id = ?");
   const getSnapshots = database.prepare("SELECT * FROM session_snapshots WHERE session_id = ? ORDER BY sequence");
+  const listSessions = database.prepare(`SELECT s.*,
+    (SELECT COUNT(*) FROM fills f WHERE f.session_id = s.id) AS fill_count
+    FROM training_sessions s
+    WHERE (? IS NULL OR s.status = ?)
+    ORDER BY s.updated_at DESC, s.created_at DESC
+    LIMIT ? OFFSET ?`);
+  const countSessions = database.prepare("SELECT COUNT(*) AS count FROM training_sessions WHERE (? IS NULL OR status = ?)");
 
   return {
     save(session, expectedVersion = null) {
@@ -94,6 +101,18 @@ export function createTrainingSessionRepository(database) {
         position: Object.freeze({ quantity: row.position_quantity, availableQuantity: row.available_quantity, totalCostCents: row.total_cost_cents }),
         orders: freezeCopies(orders), fills: freezeCopies(fills), bars: freezeCopies(bars), snapshots: Object.freeze(snapshots),
       });
+    },
+    list({ status = null, limit = 20, offset = 0 } = {}) {
+      return listSessions.all(status, status, limit, offset).map((row) => ({
+        id: row.id, stockCode: row.stock_code, stockName: row.stock_name, status: row.status,
+        simulationBars: row.simulation_bars, advancesCompleted: row.advances_completed,
+        initialCapitalCents: row.initial_capital_cents, equityCents: row.equity_cents,
+        cashCents: row.cash_cents, positionQuantity: row.position_quantity,
+        createdAt: row.created_at, updatedAt: row.updated_at, fillCount: row.fill_count,
+      }));
+    },
+    count({ status = null } = {}) {
+      return countSessions.get(status, status).count;
     },
   };
 }

@@ -115,6 +115,20 @@ async function handleApi(request, response, url) {
     return true;
   }
 
+  if (url.pathname === "/api/random-training-sessions" && request.method === "GET") {
+    const rawLimit = Number(url.searchParams.get("limit") || 20);
+    const rawOffset = Number(url.searchParams.get("offset") || 0);
+    const status = url.searchParams.get("status") || null;
+    const limit = Number.isInteger(rawLimit) ? Math.min(100, Math.max(1, rawLimit)) : 20;
+    const offset = Number.isInteger(rawOffset) ? Math.max(0, rawOffset) : 0;
+    if (status && !["running", "finished"].includes(status)) {
+      sendJson(response, 422, { error: { code: "INVALID_STATUS", message: "状态只能是running或finished" } });
+      return true;
+    }
+    sendJson(response, 200, { items: sessionRepository.list({ status, limit, offset }), total: sessionRepository.count({ status }), limit, offset });
+    return true;
+  }
+
   const sessionReviewsRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)\/reviews$/);
   if (sessionReviewsRoute) {
     const sessionId = decodeURIComponent(sessionReviewsRoute[1]);
