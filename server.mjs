@@ -228,6 +228,25 @@ async function handleApi(request, response, url) {
   }
 
   const trainingRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)(?:\/(advance|rollback|trade))?$/);
+  const reportRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)\/report$/);
+  if (reportRoute && request.method === "GET") {
+    const session = findTrainingSession(decodeURIComponent(reportRoute[1]));
+    if (!session) {
+      sendJson(response, 404, { error: { code: "TRAINING_SESSION_NOT_FOUND", message: "随机训练会话不存在" } });
+      return true;
+    }
+    if (session.status !== "finished") {
+      sendJson(response, 409, { error: { code: "SESSION_NOT_FINISHED", message: "训练尚未结束，暂不能查看结算报告" } });
+      return true;
+    }
+    const state = getPublicTrainingState(session);
+    const equityCurve = session.snapshots.map((snapshot, sequence) => ({
+      sequence, step: snapshot.advancesCompleted, equityCents: snapshot.account.equityCents,
+      cashCents: snapshot.account.cashCents, positionQuantity: snapshot.position.quantity,
+    }));
+    sendJson(response, 200, { ...state, equityCurve });
+    return true;
+  }
   if (trainingRoute) {
     const sessionId = decodeURIComponent(trainingRoute[1]);
     const action = trainingRoute[2];
