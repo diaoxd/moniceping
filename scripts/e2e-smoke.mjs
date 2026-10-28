@@ -33,6 +33,9 @@ try {
   const panelScript = await fetch(`${base}/trade-panel-tabs.js`);
   assert.equal(panelScript.status, 200);
   assert.match(await panelScript.text(), /equity-curve/);
+  const currentBarScript = await fetch(`${base}/current-bar-details.js`);
+  assert.equal(currentBarScript.status, 200);
+  assert.match(await currentBarScript.text(), /ArrowRight/);
   const invalid = await fetch(`${base}/api/random-training-sessions?status=bad`);
   assert.equal(invalid.status, 422);
   console.log("E2E smoke passed");

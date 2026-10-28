@@ -14,3 +14,4 @@ document.querySelectorAll(".chart-actions .ghost").forEach((button,index)=>{if(i
 
 window.addEventListener('indicator-settings-changed',()=>{if(typeof draw==='function')draw()});
 const panelTabsStyle=document.createElement("link");panelTabsStyle.rel="stylesheet";panelTabsStyle.href="trade-panel-tabs.css";document.head.appendChild(panelTabsStyle);const panelTabsScript=document.createElement("script");panelTabsScript.src="trade-panel-tabs.js";document.body.appendChild(panelTabsScript);
+const currentBarStyle=document.createElement("link");currentBarStyle.rel="stylesheet";currentBarStyle.href="current-bar-details.css";document.head.appendChild(currentBarStyle);const currentBarScript=document.createElement("script");currentBarScript.src="current-bar-details.js";document.body.appendChild(currentBarScript);
