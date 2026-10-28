@@ -1,14 +1,43 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { DatabaseSync } from "node:sqlite";
 
+const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const temporaryDirectory = mkdtempSync(join(tmpdir(), "trainer-e2e-"));
+const marketPath = join(temporaryDirectory, "market.db");
+const appPath = join(temporaryDirectory, "app.db");
 const port = Number(process.env.E2E_PORT || 4197);
-const child = spawn(process.execPath, ["server.mjs"], {
-  cwd: new URL("..", import.meta.url),
-  env: { ...process.env, PORT: String(port), APP_DATABASE: `/tmp/trainer-e2e-${process.pid}.db`, MARKET_DATABASE: "/tmp/nonexistent-market.db" },
-  stdio: ["ignore", "pipe", "pipe"],
-});
-
 const base = `http://127.0.0.1:${port}`;
+
+function createMarketFixture() {
+  const database = new DatabaseSync(marketPath);
+  database.exec(readFileSync(join(root, "migrations/market/001_initial.sql"), "utf8"));
+  database.prepare(`INSERT INTO stocks(stock_code, stock_name, market, board_type, is_st,
+    adjust_type, first_trade_date, last_trade_date, bar_count, source_file, source_mtime_ns)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run("600000", "端到端测试股", "SH", "MAIN", 0, "hfq", "2020-01-01", "2023-12-31", 800, "fixture", 1);
+  const insert = database.prepare(`INSERT INTO daily_bars(stock_code, trade_date, open_cents,
+    high_cents, low_cents, close_cents, volume, amount_cents, pct_chg, is_suspended,
+    limit_up_price_cents, limit_down_price_cents) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  for (let index = 0; index < 800; index += 1) {
+    const tradeDate = new Date(Date.UTC(2020, 0, index + 1)).toISOString().slice(0, 10);
+    const close = 1000 + index + Math.round(Math.sin(index / 13) * 80);
+    insert.run("600000", tradeDate, close - 5, close + 15, close - 20, close,
+      100_000 + index * 100, 100_000_000 + index * 1000, null, 0, null, null);
+  }
+  database.close();
+}
+
+async function json(path, options) {
+  const response = await fetch(`${base}${path}`, options);
+  const payload = await response.json();
+  return { response, payload };
+}
+
 async function waitForServer() {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     try {
@@ -20,25 +49,81 @@ async function waitForServer() {
   throw new Error("服务启动超时");
 }
 
+createMarketFixture();
+const child = spawn(process.execPath, ["server.mjs"], {
+  cwd: root,
+  env: { ...process.env, PORT: String(port), APP_DATABASE: appPath, MARKET_DATABASE: marketPath },
+  stdio: ["ignore", "pipe", "pipe"],
+});
+
 try {
   await waitForServer();
-  const health = await (await fetch(`${base}/api/health`)).json();
-  assert.equal(health.status, "ok");
-  const history = await (await fetch(`${base}/api/random-training-sessions?limit=5&offset=0`)).json();
-  assert.deepEqual(history.items, []);
-  assert.equal(history.total, 0);
-  const page = await fetch(`${base}/history.html`);
-  assert.equal(page.status, 200);
-  assert.match(await page.text(), /历史训练/);
-  const panelScript = await fetch(`${base}/trade-panel-tabs.js`);
-  assert.equal(panelScript.status, 200);
-  assert.match(await panelScript.text(), /equity-curve/);
-  const currentBarScript = await fetch(`${base}/current-bar-details.js`);
-  assert.equal(currentBarScript.status, 200);
-  assert.match(await currentBarScript.text(), /ArrowRight/);
-  const invalid = await fetch(`${base}/api/random-training-sessions?status=bad`);
-  assert.equal(invalid.status, 422);
-  console.log("E2E smoke passed");
+  const health = await json("/api/health");
+  assert.equal(health.payload.marketDatabase, true);
+
+  let result = await json("/api/random-training-sessions", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ simulationBars: 150, seed: "e2e-seed", initialCapitalCents: 100_000_000 }),
+  });
+  assert.equal(result.response.status, 201);
+  let state = result.payload;
+  assert.equal(state.bars.daily.length, 200);
+  assert.equal(state.datesRevealed, false);
+  assert.equal(state.bars.daily.some((bar) => "tradeDate" in bar), false);
+
+  result = await json(`/api/random-training-sessions/${state.id}/trade`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expectedVersion: state.version, side: "buy", quantity: 100 }),
+  });
+  state = result.payload;
+  assert.equal(state.position.quantity, 100);
+  assert.equal(state.position.availableQuantity, 0);
+
+  const blockedRollback = await json(`/api/random-training-sessions/${state.id}/rollback`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expectedVersion: state.version }),
+  });
+  assert.equal(blockedRollback.response.status, 422);
+
+  state = (await json(`/api/random-training-sessions/${state.id}/advance`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expectedVersion: state.version }),
+  })).payload;
+  assert.equal(state.position.availableQuantity, 100);
+
+  state = (await json(`/api/random-training-sessions/${state.id}/trade`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expectedVersion: state.version, side: "sell", quantity: 100 }),
+  })).payload;
+  assert.equal(state.position.quantity, 0);
+
+  while (state.status === "running") {
+    state = (await json(`/api/random-training-sessions/${state.id}/advance`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expectedVersion: state.version }),
+    })).payload;
+  }
+  assert.equal(state.advancesCompleted, 150);
+  assert.equal(state.datesRevealed, true);
+
+  const report = await json(`/api/random-training-sessions/${state.id}/report`);
+  assert.equal(report.response.status, 200);
+  assert.equal(report.payload.equityCurve.length, state.advancesCompleted + 1);
+  const review = await json(`/api/random-training-sessions/${state.id}/reviews`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+  });
+  assert.equal(review.response.status, 201);
+  const reviewStep = await json(`/api/reviews/${review.payload.id}/steps/${review.payload.startStep}`);
+  assert.equal(reviewStep.response.status, 200);
+
+  const history = await json("/api/random-training-sessions?status=finished&limit=5&offset=0");
+  assert.equal(history.payload.total, 1);
+  assert.equal(history.payload.items[0].fillCount, 2);
+  assert.equal((await fetch(`${base}/history.html`)).status, 200);
+  assert.equal((await fetch(`${base}/trade-panel-tabs.js`)).status, 200);
+  assert.equal((await fetch(`${base}/current-bar-details.js`)).status, 200);
+  console.log("E2E full training flow passed");
 } finally {
   child.kill("SIGTERM");
+  rmSync(temporaryDirectory, { recursive: true });
 }
