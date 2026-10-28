@@ -2,9 +2,22 @@
   const chart = document.querySelector(".chart-wrap");
   const next = document.getElementById("nextBtn");
   if (!chart || !next) return;
+  const legacyPriceTag = document.querySelector(".chart-overlay");
+  if (legacyPriceTag) legacyPriceTag.hidden = true;
   const details = document.createElement("aside");
   details.className = "current-bar-details";
   chart.appendChild(details);
+  const horizontalLine = document.createElement("div");
+  horizontalLine.className = "current-price-line";
+  horizontalLine.innerHTML = "<span></span>";
+  chart.appendChild(horizontalLine);
+  const latestLine = document.createElement("div");
+  latestLine.className = "latest-bar-line";
+  chart.appendChild(latestLine);
+  const indicator = document.querySelector(".volume-wrap");
+  const indicatorLine = document.createElement("div");
+  indicatorLine.className = "latest-bar-line";
+  indicator?.appendChild(indicatorLine);
   const money = (cents) => (Number(cents) / 100).toFixed(2);
 
   function activePeriod() {
@@ -15,10 +28,26 @@
 
   function render() {
     const state = JSON.parse(sessionStorage.getItem("randomTrainingState") || "null");
-    const bar = state?.bars?.[activePeriod()]?.at(-1);
+    const bars = state?.bars?.[activePeriod()] || [];
+    const bar = bars.at(-1);
     if (!bar) return;
+    const previous = bars.at(-2);
+    const changeCents = previous ? bar.closeCents - previous.closeCents : 0;
+    const changeRate = previous?.closeCents ? changeCents / previous.closeCents * 100 : 0;
     const turnover = bar.turnoverRateMillionths == null ? "暂无数据" : `${(bar.turnoverRateMillionths / 10000).toFixed(2)}%`;
-    details.innerHTML = `<b>当前 K 线</b><span>开 ${money(bar.openCents)}</span><span>高 ${money(bar.highCents)}</span><span>低 ${money(bar.lowCents)}</span><span>收 ${money(bar.closeCents)}</span><span>换手 ${turnover}</span>`;
+    const changeClass = changeCents >= 0 ? "rise" : "fall";
+    details.innerHTML = `<b>当前 K 线 <em>编号 ${bar.index ?? bars.length}</em></b><span>开 <strong>${money(bar.openCents)}</strong></span><span>高 <strong>${money(bar.highCents)}</strong></span><span>低 <strong>${money(bar.lowCents)}</strong></span><span>收 <strong>${money(bar.closeCents)}</strong></span><span>涨跌额 <strong class="${changeClass}">${changeCents >= 0 ? "+" : ""}${money(changeCents)}</strong></span><span>涨跌幅 <strong class="${changeClass}">${changeRate >= 0 ? "+" : ""}${changeRate.toFixed(2)}%</strong></span><span>成交量 <strong>${bar.volume.toLocaleString()}</strong></span><span>换手 <strong>${turnover}</strong></span>`;
+
+    const shown = bars.slice(-200);
+    const minimum = Math.min(...shown.map((item) => item.lowCents));
+    const maximum = Math.max(...shown.map((item) => item.highCents));
+    const range = Math.max(1, maximum - minimum);
+    const y = 20 + (maximum - bar.closeCents) / range * (chart.clientHeight - 38);
+    const x = 10 + (shown.length - .5) * ((chart.clientWidth - 28) / shown.length);
+    horizontalLine.style.top = `${y}px`;
+    horizontalLine.querySelector("span").textContent = money(bar.closeCents);
+    latestLine.style.left = `${x}px`;
+    indicatorLine.style.left = `${x}px`;
   }
 
   document.addEventListener("keydown", (event) => {
