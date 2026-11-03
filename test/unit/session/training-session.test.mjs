@@ -50,6 +50,10 @@ test("creation exposes exactly 200 historical bars and hides every real date", (
   assert.equal(state.bars.daily.length, 200);
   assert.equal(state.bars.daily[0].index, -199);
   assert.equal(state.bars.daily.at(-1).index, 0);
+  assert.equal(state.trainingStartBarIndex, 0);
+  assert.equal(state.bars.daily.filter((bar) => bar.isTrainingStart).length, 1);
+  assert.equal(state.bars.weekly.filter((bar) => bar.isTrainingStart).length, 1);
+  assert.equal(state.bars.monthly.filter((bar) => bar.isTrainingStart).length, 1);
   assert.equal(JSON.stringify(state).includes("tradeDate"), false);
   assert.equal(JSON.stringify(state).includes("2020-"), false);
   assert.equal(state.datesRevealed, false);

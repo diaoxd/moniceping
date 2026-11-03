@@ -55,6 +55,7 @@ function assertVersion(session, expectedVersion) {
 function publicBar(bar, relativeIndex, revealDates) {
   return Object.freeze({
     index: relativeIndex,
+    isTrainingStart: relativeIndex === 0,
     ...(revealDates ? { tradeDate: bar.tradeDate } : {}),
     openCents: bar.openCents,
     highCents: bar.highCents,
@@ -66,11 +67,17 @@ function publicBar(bar, relativeIndex, revealDates) {
 }
 
 function publicAggregates(groups, revealDates) {
-  return Object.freeze(groups.map(({ key, ...bar }, index) => Object.freeze({
-    index,
-    ...(revealDates ? { periodStart: key } : {}),
-    ...bar,
-  })));
+  let sourceOffset = 0;
+  return Object.freeze(groups.map(({ key, ...bar }, index) => {
+    const sourceStart = sourceOffset;
+    sourceOffset += bar.sourceCount;
+    return Object.freeze({
+      index,
+      isTrainingStart: sourceStart <= HISTORY_CONTEXT_BARS - 1 && sourceOffset > HISTORY_CONTEXT_BARS - 1,
+      ...(revealDates ? { periodStart: key } : {}),
+      ...bar,
+    });
+  }));
 }
 
 function calculatePerformance(session, currentBar) {
@@ -199,6 +206,7 @@ export function getPublicTrainingState(session) {
     datesRevealed: revealDates,
     version: session.version,
     simulationBars: session.simulationBars,
+    trainingStartBarIndex: 0,
     advancesCompleted: session.advancesCompleted,
     advancesRemaining: session.simulationBars - session.advancesCompleted,
     account: Object.freeze({ ...session.account }),

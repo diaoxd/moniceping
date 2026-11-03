@@ -90,6 +90,7 @@ function drawPriceAxis(context, width, right, levels, y) {
   context.textAlign = "right";
   context.textBaseline = "middle";
   levels.forEach(({ value, label, current }) => {
+    if (current) return;
     const position = y(value);
     context.strokeStyle = current ? "#d6a62f" : "#3b84dc";
     context.lineWidth = current ? 1.2 : 0.8;
@@ -127,6 +128,28 @@ function drawSwing(context, point, name, offset, x, y, plotRight, labelDirection
   context.fillText(label, labelX, labelY);
 }
 
+function drawTrainingStart(context, shown, x, top, bottom) {
+  const index = shown.findIndex((bar) => bar.isTrainingStart);
+  if (index < 0) return null;
+  const position = x(index);
+  context.strokeStyle = "rgba(56, 189, 248, .92)";
+  context.lineWidth = 1.2;
+  context.setLineDash([5, 5]);
+  context.beginPath();
+  context.moveTo(position, top);
+  context.lineTo(position, bottom);
+  context.stroke();
+  context.setLineDash([]);
+  context.fillStyle = "rgba(13, 17, 23, .88)";
+  context.fillRect(position - 26, bottom - 18, 52, 15);
+  context.fillStyle = "#38bdf8";
+  context.font = "600 10px 'DM Mono', monospace";
+  context.textAlign = "center";
+  context.textBaseline = "bottom";
+  context.fillText("模拟起点", position, bottom - 4);
+  return position;
+}
+
 function drawIndicatorPanel(bars, viewport) {
   const [context, width, height] = resize(vc);
   const left = 10;
@@ -143,6 +166,16 @@ function drawIndicatorPanel(bars, viewport) {
       context.fillStyle = bar.closeCents >= bar.openCents ? "#f0445f" : "#11c98b";
       context.fillRect(x(index) - Math.max(1, step * 0.275), height - bottom - barHeight, Math.max(1, step * 0.55), barHeight);
     });
+    const startIndex = viewport.shown.findIndex((bar) => bar.isTrainingStart);
+    if (startIndex >= 0) {
+      context.strokeStyle = "rgba(56, 189, 248, .72)";
+      context.setLineDash([5, 5]);
+      context.beginPath();
+      context.moveTo(x(startIndex), top);
+      context.lineTo(x(startIndex), height - bottom);
+      context.stroke();
+      context.setLineDash([]);
+    }
     return;
   }
   const indicators = state.indicators[period];
@@ -226,10 +259,11 @@ function draw() {
     const calculated = window.trainingIndicatorSettings?.calculateMA?.(bars, length) || movingAverage(bars, length);
     plotLine(context, calculated.slice(viewport.offset), colors[index], x, y);
   });
+  const trainingStartX = drawTrainingStart(context, viewport.shown, x, padding.top, height - padding.bottom);
   drawSwing(context, references.high, "前高", viewport.offset, x, y, plotRight, -1);
   drawSwing(context, references.low, "近15低", viewport.offset, x, y, plotRight, 1);
   drawPriceAxis(context, width, padding.right, levels, y);
-  window.trainingChartLayout = { period, latestX: x(viewport.shown.length - 1), currentY: y(latest.closeCents), visibleCount: viewport.visibleCount, blankSlots: viewport.blankSlots };
+  window.trainingChartLayout = { period, latestX: x(viewport.shown.length - 1), currentY: y(latest.closeCents), plotRight, trainingStartX, visibleCount: viewport.visibleCount, blankSlots: viewport.blankSlots };
   ["currentPrice", "priceTag", "closeVal"].forEach((id) => { byId(id).textContent = money(latest.closeCents); });
   byId("openVal").textContent = money(latest.openCents);
   byId("highVal").textContent = money(latest.highCents);
@@ -304,6 +338,7 @@ function render() {
   byId("tradeCount").textContent = `共 ${state.fills.length} 笔`;
   byId("tradeList").innerHTML = state.fills.slice().reverse().map((fill) => `<div class="trade-item"><span class="${fill.side}">${fill.side === "buy" ? "买入" : "卖出"} ${fill.quantity.toLocaleString()}股</span><span>${money(fill.fillPriceCents)} · 费 ${money(fill.totalFeesCents)}</span></div>`).join("");
   draw();
+  window.dispatchEvent(new CustomEvent("training-state-rendered"));
 }
 
 async function act(action) {

@@ -74,6 +74,14 @@ try {
   const initialLayout = await page.evaluate(() => window.trainingChartLayout);
   assert.equal(initialLayout.visibleCount, 100);
   assert.ok(initialLayout.blankSlots > 0);
+  assert.ok(initialLayout.trainingStartX !== null);
+  assert.equal(initialLayout.trainingStartX, initialLayout.latestX);
+  await page.waitForFunction(() => {
+    const line = document.querySelector(".current-price-line");
+    const label = line?.querySelector("span");
+    return line && label && line.getBoundingClientRect().left >= document.getElementById("priceChart").getBoundingClientRect().left + window.trainingChartLayout.latestX - 1
+      && label.getBoundingClientRect().left > line.getBoundingClientRect().left;
+  });
   await page.keyboard.press("ArrowUp");
   assert.equal((await page.evaluate(() => window.trainingChartLayout)).visibleCount, 90);
   await page.locator("#priceChart").hover();
@@ -85,6 +93,9 @@ try {
   await page.keyboard.press("ArrowRight");
   await page.waitForFunction(() => document.getElementById("stepNumber")?.textContent === "1");
   assert.equal(await page.locator("#stepNumber").innerText(), "1");
+  const advancedLayout = await page.evaluate(() => window.trainingChartLayout);
+  assert.ok(advancedLayout.trainingStartX < advancedLayout.latestX);
+  assert.match(await page.locator(".current-bar-details").innerText(), /编号 1/);
 
   await page.getByRole("button", { name: "周线" }).click();
   assert.match(await page.locator(".ma-live-value").first().innerText(), /^MA/);

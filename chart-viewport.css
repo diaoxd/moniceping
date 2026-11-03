@@ -16,3 +16,13 @@
 
 .chart-reset:hover { border-color: var(--blue); background: #223147; color: #fff; }
 .chart-reset:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+.current-price-line {
+  left: auto;
+  right: auto;
+}
+
+.current-price-line span {
+  right: 0;
+  transform: translateX(100%);
+}

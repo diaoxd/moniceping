@@ -44,6 +44,8 @@
     const x = layout?.period === activePeriod() ? layout.latestX : fallbackX;
     const y = layout?.period === activePeriod() ? layout.currentY : fallbackY;
     horizontalLine.style.top = `${y}px`;
+    horizontalLine.style.left = `${x}px`;
+    horizontalLine.style.right = `${Math.max(58, chart.clientWidth - (layout?.plotRight || chart.clientWidth - 58))}px`;
     horizontalLine.querySelector("span").textContent = money(bar.closeCents);
     latestLine.style.left = `${x}px`;
     indicatorLine.style.left = `${x}px`;
@@ -56,6 +58,7 @@
     event.preventDefault();
     if (!next.disabled) next.click();
   });
-  setInterval(render, 200);
+  window.addEventListener("training-state-rendered", render);
+  setInterval(render, 1000);
   render();
 })();
