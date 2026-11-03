@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { loadTrainingStocks, validateMarketDatabaseSchema } from "../../src/infrastructure/market-repository.mjs";
+import { loadTrainingRanges, loadTrainingStocks, validateMarketDatabaseSchema } from "../../src/infrastructure/market-repository.mjs";
 import { selectRandomTrainingCandidate } from "../../src/domain/session/random-candidate.mjs";
 
 function createDatabase() {
@@ -47,6 +47,16 @@ test("market repository excludes stocks without enough context or future bars", 
   const addBar = database.prepare("INSERT INTO daily_bars VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
   addBar.run("000001", "2021-01-01", 100, 110, 90, 100, 1, 1, null, 0, null, null);
   assert.equal(loadTrainingStocks(database, { simulationBars: 200 }).some((stock) => stock.stockCode === "000001"), false);
+  database.close();
+});
+
+test("market repository returns compact weighted ranges without loading bars", () => {
+  const database = createDatabase();
+  const ranges = loadTrainingRanges(database, { simulationBars: 150 });
+  assert.equal(ranges.length, 2);
+  assert.equal(ranges[0].firstStartIndex, 366);
+  assert.equal(ranges[0].eligibleCount, 85);
+  assert.equal("bars" in ranges[0], false);
   database.close();
 });
 

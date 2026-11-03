@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { selectRandomTrainingCandidate } from "../../../src/domain/session/random-candidate.mjs";
+import { selectRandomTrainingCandidate, selectRandomTrainingRange } from "../../../src/domain/session/random-candidate.mjs";
 
 function bars(startYear, count) {
   const date = new Date(`${startYear}-01-01T00:00:00Z`);
@@ -40,4 +40,16 @@ test("stocks without a full history and simulation window are excluded", () => {
     }),
     (error) => error.code === "NO_TRAINING_CANDIDATE",
   );
+});
+
+test("compact ranges select a reproducible globally weighted candidate", () => {
+  const ranges = [
+    { stockCode: "000001", stockName: "深市样本", market: "SZ", boardType: "MAIN", firstStartIndex: 200, eligibleCount: 1 },
+    { stockCode: "600000", stockName: "沪市样本", market: "SH", boardType: "MAIN", firstStartIndex: 300, eligibleCount: 999 },
+  ];
+  const first = selectRandomTrainingRange({ ranges, simulationBars: 150, seed: "weighted-seed" });
+  const second = selectRandomTrainingRange({ ranges, simulationBars: 150, seed: "weighted-seed" });
+  assert.deepEqual(first, second);
+  assert.equal(first.candidateCount, 1000);
+  assert.ok(first.candidate.startIndex >= 200);
 });

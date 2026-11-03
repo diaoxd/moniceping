@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Iterable
 
@@ -83,7 +84,12 @@ def import_hfq_file(database: sqlite3.Connection, path: str | Path) -> dict:
               limit_up_price_cents, limit_down_price_cents
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, bar_values)
-    return {"stockCode": identity["stock_code"], "stockName": identity["stock_name"], "records": len(records)}
+    return {
+        "stockCode": identity["stock_code"],
+        "stockName": identity["stock_name"],
+        "records": len(records),
+        "duplicateRowsSkipped": parsed["duplicateRowsSkipped"],
+    }
 
 
 def read_manifest(path: Path) -> Iterable[Path]:
@@ -98,25 +104,42 @@ def main() -> int:
     parser.add_argument("--database", type=Path, required=True, help="目标SQLite数据库")
     parser.add_argument("--file", type=Path, action="append", default=[], help="可重复指定的行情文件")
     parser.add_argument("--manifest", type=Path, help="UTF-8文件清单，每行一个完整路径")
+    parser.add_argument("--directory", type=Path, help="批量导入目录下的行情文件")
+    parser.add_argument("--pattern", default="*.txt", help="配合--directory使用的文件匹配，默认*.txt")
+    parser.add_argument("--progress-every", type=int, default=100, help="每处理多少个文件输出一次进度")
+    parser.add_argument("--summary-only", action="store_true", help="只输出汇总，不输出逐文件成功记录")
     args = parser.parse_args()
     files = list(args.file)
     if args.manifest:
         files.extend(read_manifest(args.manifest))
+    if args.directory:
+        files.extend(sorted(path for path in args.directory.glob(args.pattern) if path.is_file()))
     if not files:
-        parser.error("至少指定一个--file或--manifest")
+        parser.error("至少指定一个--file、--manifest或--directory")
 
     args.database.parent.mkdir(parents=True, exist_ok=True)
     database = connect_market_database(args.database)
     report = {"database": str(args.database), "imported": [], "failed": []}
     try:
-        for source in files:
+        for index, source in enumerate(files, start=1):
             try:
                 report["imported"].append(import_hfq_file(database, source))
             except (MarketDataError, OSError, sqlite3.Error) as error:
-                report["failed"].append({"path": str(source), "code": getattr(error, "code", type(error).__name__), "message": str(error)})
+                report["failed"].append({
+                    "path": str(source),
+                    "code": getattr(error, "code", type(error).__name__),
+                    "message": str(error),
+                    "issues": [issue.__dict__ for issue in getattr(error, "issues", [])],
+                })
+            if args.progress_every > 0 and (index % args.progress_every == 0 or index == len(files)):
+                print(f"已处理 {index}/{len(files)}，失败 {len(report['failed'])}", file=sys.stderr, flush=True)
     finally:
         database.close()
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    output = report if not args.summary_only else {
+        "database": report["database"], "total": len(files),
+        "imported": len(report["imported"]), "failed": report["failed"],
+    }
+    print(json.dumps(output, ensure_ascii=False, indent=2))
     return 0 if report["imported"] and not report["failed"] else 1
 
 

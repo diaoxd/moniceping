@@ -39,3 +39,20 @@ test("random training service preserves domain validation", () => {
   assert.throws(() => service.create({ initialCapitalCents: 999_999 }), (error) => error.code === "INVALID_INITIAL_CAPITAL");
   db.close();
 });
+
+test("random training service reuses candidate ranges across sessions", () => {
+  const db = database();
+  const service = createRandomTrainingService({ marketDatabase: db, idFactory: () => "session-fixed" });
+  const first = service.create({ simulationBars: 150, seed: "before-change" });
+  db.prepare("INSERT INTO stocks VALUES ('000001', '新增股票', 'SZ', 'MAIN')").run();
+  const insert = db.prepare("INSERT INTO daily_bars VALUES (?, ?, ?, ?, ?, ?, 100, 10000, NULL, 0, NULL, NULL)");
+  for (let index = 0; index < 600; index += 1) {
+    const date = new Date(Date.UTC(2020, 0, index + 1)).toISOString().slice(0, 10);
+    insert.run("000001", date, 1000, 1010, 990, 1000);
+  }
+  const second = service.create({ simulationBars: 150, seed: "after-change" });
+  const uncached = service.create({ simulationBars: 200, seed: "uncached" });
+  assert.equal(second.candidateCount, first.candidateCount);
+  assert.ok(uncached.candidateCount > 0);
+  db.close();
+});

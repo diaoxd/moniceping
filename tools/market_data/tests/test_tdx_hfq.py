@@ -49,11 +49,32 @@ class TdxHfqParserTest(unittest.TestCase):
         self.assertEqual(context.exception.issues[0].code, "INVALID_OHLC")
         self.assertEqual(context.exception.issues[0].line_number, 3)
 
-    def test_duplicate_dates_are_rejected(self):
-        text = VALID_TEXT.replace("2020/12/31", "2020/12/30")
+    def test_identical_duplicate_rows_are_skipped(self):
+        duplicate = "2020/12/30\t10.00\t10.50\t9.80\t10.20\t1000\t10000.50\n"
+        text = VALID_TEXT.replace("2020/12/31", duplicate + "2020/12/31")
+        result = parse_tdx_hfq_file(self.write_fixture(text))
+        self.assertEqual(len(result["records"]), 2)
+        self.assertEqual(result["duplicateRowsSkipped"], 1)
+
+    def test_identical_repeated_historical_block_is_skipped(self):
+        repeated = "2020/12/30\t10.00\t10.50\t9.80\t10.20\t1000\t10000.50\n"
+        text = VALID_TEXT.replace("#数据来源:通达信", repeated + "#数据来源:通达信")
+        result = parse_tdx_hfq_file(self.write_fixture(text))
+        self.assertEqual([row["tradeDate"] for row in result["records"]], ["2020-12-30", "2020-12-31"])
+        self.assertEqual(result["duplicateRowsSkipped"], 1)
+
+    def test_conflicting_duplicate_dates_are_rejected(self):
+        text = VALID_TEXT.replace("2020/12/31\t10.20", "2020/12/30\t10.21")
         with self.assertRaises(MarketDataError) as context:
             parse_tdx_hfq_file(self.write_fixture(text))
-        self.assertEqual(context.exception.issues[0].code, "DUPLICATE_OR_UNSORTED_DATE")
+        self.assertEqual(context.exception.issues[0].code, "DUPLICATE_DATE_CONFLICT")
+
+    def test_unseen_unsorted_date_is_rejected(self):
+        extra = "2020/12/29\t10.00\t10.50\t9.80\t10.20\t1000\t10000.50\n"
+        text = VALID_TEXT.replace("#数据来源:通达信", extra + "#数据来源:通达信")
+        with self.assertRaises(MarketDataError) as context:
+            parse_tdx_hfq_file(self.write_fixture(text))
+        self.assertEqual(context.exception.issues[0].code, "UNSORTED_DATE")
 
     def test_non_comment_short_line_is_still_rejected(self):
         text = VALID_TEXT.replace("#数据来源:通达信", "损坏的行情行")

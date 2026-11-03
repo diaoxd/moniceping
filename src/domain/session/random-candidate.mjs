@@ -21,6 +21,40 @@ function createRandom(seed) {
   };
 }
 
+export function selectRandomTrainingRange({ ranges, simulationBars, seed }) {
+  if (!ALLOWED_SIMULATION_BARS.includes(simulationBars)) {
+    throw Object.assign(new Error("模拟区间只能是150或200根"), { code: "INVALID_SIMULATION_BARS" });
+  }
+  if (!Array.isArray(ranges)) {
+    throw Object.assign(new Error("候选区间列表无效"), { code: "INVALID_CANDIDATE_SOURCE" });
+  }
+  const candidateCount = ranges.reduce((total, range) => total + Number(range?.eligibleCount || 0), 0);
+  if (candidateCount <= 0) {
+    throw Object.assign(new Error("没有满足200根上下文和模拟区间要求的候选"), { code: "NO_TRAINING_CANDIDATE" });
+  }
+  let offset = Math.floor(createRandom(seed)() * candidateCount);
+  for (const range of ranges) {
+    const eligibleCount = Number(range?.eligibleCount || 0);
+    if (offset >= eligibleCount) {
+      offset -= eligibleCount;
+      continue;
+    }
+    return Object.freeze({
+      candidate: Object.freeze({
+        stockCode: range.stockCode,
+        stockName: range.stockName,
+        market: range.market,
+        boardType: range.boardType,
+        startIndex: Number(range.firstStartIndex) + offset,
+        simulationBars,
+        seed: String(seed),
+      }),
+      candidateCount,
+    });
+  }
+  throw Object.assign(new Error("候选区间统计无效"), { code: "INVALID_CANDIDATE_SOURCE" });
+}
+
 export function selectRandomTrainingCandidate({
   stocks,
   simulationBars,

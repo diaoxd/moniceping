@@ -123,6 +123,8 @@ def parse_tdx_hfq_file(path: str | Path) -> dict:
     identity = _extract_identity(lines[0], source)
     issues: list[QualityIssue] = []
     records: list[dict] = []
+    rows_by_date: dict[str, tuple[int, int, int, int, int, int]] = {}
+    duplicate_rows_skipped = 0
     previous_date: str | None = None
     previous_close: int | None = None
     rate = _limit_rate(identity)
@@ -145,8 +147,15 @@ def parse_tdx_hfq_file(path: str | Path) -> dict:
             )
             volume = _to_non_negative_integer(row[5], "成交量")
             amount_cents = _to_cents(row[6], "成交额")
-            if previous_date and trade_date <= previous_date:
-                raise MarketDataError("DUPLICATE_OR_UNSORTED_DATE", "日期重复或未严格递增")
+            values = (open_cents, high_cents, low_cents, close_cents, volume, amount_cents)
+            existing_values = rows_by_date.get(trade_date)
+            if existing_values is not None:
+                if existing_values != values:
+                    raise MarketDataError("DUPLICATE_DATE_CONFLICT", "同一日期存在内容不同的行情")
+                duplicate_rows_skipped += 1
+                continue
+            if previous_date and trade_date < previous_date:
+                raise MarketDataError("UNSORTED_DATE", "日期未严格递增")
             if high_cents < max(open_cents, close_cents) or low_cents > min(open_cents, close_cents) or high_cents < low_cents:
                 raise MarketDataError("INVALID_OHLC", "OHLC关系无效")
             pct_chg = None if previous_close in (None, 0) else str(
@@ -173,6 +182,7 @@ def parse_tdx_hfq_file(path: str | Path) -> dict:
                 "limitDownPriceCents": None if previous_close is None else _calculated_limit(previous_close, rate, -1),
                 "adjustType": "hfq",
             })
+            rows_by_date[trade_date] = values
             previous_date = trade_date
             previous_close = close_cents
         except MarketDataError as error:
@@ -182,7 +192,12 @@ def parse_tdx_hfq_file(path: str | Path) -> dict:
         raise MarketDataError("DATA_QUALITY_FAILED", f"发现{len(issues)}条数据质量问题", issues)
     if not records:
         raise MarketDataError("NO_VALID_RECORDS", "文件没有有效行情记录")
-    return {"identity": asdict(identity), "records": records, "qualityIssues": []}
+    return {
+        "identity": asdict(identity),
+        "records": records,
+        "qualityIssues": [],
+        "duplicateRowsSkipped": duplicate_rows_skipped,
+    }
 
 
 def iter_source_files(source: Path) -> Iterable[Path]:

@@ -59,6 +59,33 @@ export function loadTrainingStocks(database, { simulationBars, minimumStartDate 
       && bar.tradeDate >= minimumStartDate));
 }
 
+export function loadTrainingRanges(database, { simulationBars, minimumStartDate = "2021-01-01" } = {}) {
+  if (![150, 200].includes(simulationBars)) {
+    throw Object.assign(new Error("模拟区间只能是150或200根"), { code: "INVALID_SIMULATION_BARS" });
+  }
+  return database.prepare(`
+    WITH bar_stats AS (
+      SELECT stock_code, COUNT(*) AS total_bars,
+        SUM(CASE WHEN trade_date < ? THEN 1 ELSE 0 END) AS bars_before_start_date
+      FROM daily_bars
+      GROUP BY stock_code
+    ), candidate_ranges AS (
+      SELECT stock_code, total_bars,
+        MAX(?, bars_before_start_date) AS first_start_index
+      FROM bar_stats
+    )
+    SELECT s.stock_code AS stockCode, s.stock_name AS stockName,
+      s.market, s.board_type AS boardType,
+      r.first_start_index AS firstStartIndex,
+      r.total_bars - ? - r.first_start_index + 1 AS eligibleCount
+    FROM candidate_ranges r
+    JOIN stocks s ON s.stock_code = r.stock_code
+    WHERE s.market IN ('SH', 'SZ', 'BJ')
+      AND r.total_bars - ? - r.first_start_index + 1 > 0
+    ORDER BY s.stock_code
+  `).all(minimumStartDate, HISTORY_CONTEXT_BARS, simulationBars, simulationBars);
+}
+
 export function loadTrainingStock(database, stockCode) {
   const stock = database.prepare(`
     SELECT stock_code AS stockCode, stock_name AS stockName, market, board_type AS boardType
