@@ -9,9 +9,14 @@
     "test": "npm run test:unit && npm run test:data",
     "test:unit": "node --test",
     "test:data": "node scripts/run-python-tests.mjs",
-    "test:e2e": "node scripts/e2e-smoke.mjs"
+    "test:e2e": "npm run test:e2e:api && npm run test:e2e:browser",
+    "test:e2e:api": "node scripts/e2e-smoke.mjs",
+    "test:e2e:browser": "node scripts/e2e-browser.mjs"
   },
   "engines": {
     "node": ">=22 <23"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
   }
 }
