@@ -69,6 +69,28 @@ try {
     page.getByRole("button", { name: "开始训练" }).click(),
   ]);
   await page.waitForSelector(".current-bar-details");
+  await page.waitForFunction(() => getComputedStyle(document.querySelector(".brand .muted")).display === "none");
+  assert.equal(await page.locator(".brand .muted").isVisible(), false);
+  assert.equal(await page.locator(".instrument-row .eyebrow").isVisible(), false);
+  assert.equal(await page.locator(".trade-panel > .top-actions").count(), 1);
+  const compactLayout = await page.evaluate(() => {
+    const center = (selector) => {
+      const rect = document.querySelector(selector).getBoundingClientRect();
+      return rect.top + rect.height / 2;
+    };
+    const volume = document.getElementById("volumeChart").getBoundingClientRect();
+    return {
+      centers: [center(".instrument-row h1"), center(".ohlc"), center(".chart-actions")],
+      volumeBottom: volume.bottom,
+      volumeHeight: volume.height,
+      viewportHeight: innerHeight,
+      documentHeight: document.documentElement.scrollHeight,
+    };
+  });
+  assert.ok(Math.max(...compactLayout.centers) - Math.min(...compactLayout.centers) < 12);
+  assert.ok(compactLayout.volumeHeight > 100);
+  assert.ok(compactLayout.volumeBottom <= compactLayout.viewportHeight);
+  assert.ok(compactLayout.documentHeight <= compactLayout.viewportHeight);
   assert.match(await page.locator(".instrument-row h1").innerText(), /浏览器测试股/);
   assert.equal(await page.locator("#stepNumber").innerText(), "0");
   assert.equal(await page.locator("#dateLabel").innerText(), "日期已隐藏");

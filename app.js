@@ -293,6 +293,16 @@ function installChartControls() {
   document.head.appendChild(style);
 }
 
+function installWorkspaceLayout() {
+  const style = document.createElement("link");
+  style.rel = "stylesheet";
+  style.href = "workspace-layout.css";
+  document.head.appendChild(style);
+  const topActions = document.querySelector(".top-actions");
+  const tradePanel = document.querySelector(".trade-panel");
+  if (topActions && tradePanel) tradePanel.prepend(topActions);
+}
+
 function selectedPercent() { return Number(byId("positionSlider").value); }
 function buyQuantity() { return Math.floor(state.maximumBuyQuantity * selectedPercent() / 100 / 100) * 100; }
 function sellQuantity() {
@@ -442,6 +452,7 @@ document.addEventListener("keydown", (event) => {
   zoomChart(event.key === "ArrowUp" ? -1 : 1);
 });
 
+installWorkspaceLayout();
 installChartControls();
 window.addEventListener("indicator-settings-changed", draw);
 

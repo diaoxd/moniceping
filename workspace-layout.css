@@ -1,0 +1,115 @@
+@media (min-width: 901px) {
+  .topbar {
+    height: 52px;
+    padding: 0 20px;
+  }
+
+  .brand .muted,
+  .instrument-row .eyebrow {
+    display: none;
+  }
+
+  .workspace {
+    height: calc(100vh - 52px);
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .chart-section {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    padding: 14px 20px 10px;
+  }
+
+  .instrument-row {
+    align-items: center;
+    flex: 0 0 auto;
+    min-height: 48px;
+  }
+
+  .instrument-row > div:first-child {
+    align-items: center;
+    display: flex;
+    flex: 0 1 auto;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .instrument-row h1 {
+    font-size: 19px;
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .quote {
+    flex: 0 0 auto;
+  }
+
+  .quote strong {
+    font-size: 20px;
+  }
+
+  .ohlc {
+    flex: 0 0 auto;
+    gap: 16px;
+    padding-top: 0;
+    white-space: nowrap;
+  }
+
+  .chart-actions {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+
+  .indicator-strip {
+    flex: 0 0 32px;
+    height: 32px;
+  }
+
+  #indicatorSettings {
+    flex: 0 0 auto;
+    margin-top: 4px;
+  }
+
+  .chart-wrap {
+    flex: 1 1 280px;
+    height: auto;
+    min-height: 260px;
+  }
+
+  .indicator-modes {
+    flex: 0 0 34px;
+  }
+
+  .volume-wrap {
+    flex: 0 0 125px;
+    height: 125px;
+  }
+
+  .timeline {
+    flex: 0 0 auto;
+    padding-top: 10px;
+  }
+
+  .legend {
+    flex: 0 0 18px;
+    margin-top: 5px;
+  }
+
+  .trade-panel {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    padding-top: 14px;
+  }
+
+  .trade-panel > .top-actions {
+    flex: 0 0 auto;
+    justify-content: flex-end;
+    margin-bottom: 4px;
+    min-height: 22px;
+  }
+}
