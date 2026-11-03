@@ -163,6 +163,18 @@ try {
   const history = await json("/api/random-training-sessions?status=finished&limit=5&offset=0");
   assert.equal(history.payload.total, 1);
   assert.equal(history.payload.items[0].fillCount, 2);
+  const manualSession = (await json("/api/random-training-sessions", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ simulationBars: 200, seed: "manual-finish-e2e", initialCapitalCents: 100_000_000 }),
+  })).payload;
+  const manuallyFinished = await json(`/api/random-training-sessions/${manualSession.id}/finish`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expectedVersion: manualSession.version }),
+  });
+  assert.equal(manuallyFinished.response.status, 200);
+  assert.equal(manuallyFinished.payload.status, "finished");
+  assert.equal(manuallyFinished.payload.advancesCompleted, 0);
+  assert.equal(manuallyFinished.payload.datesRevealed, true);
   assert.equal((await fetch(`${base}/history.html`)).status, 200);
   assert.equal((await fetch(`${base}/trade-panel-tabs.js`)).status, 200);
   assert.equal((await fetch(`${base}/current-bar-details.js`)).status, 200);

@@ -255,6 +255,18 @@ export function advanceTrainingSession(session, expectedVersion) {
   return Object.freeze(next);
 }
 
+export function finishTrainingSession(session, expectedVersion) {
+  assertVersion(session, expectedVersion);
+  if (session.status !== "running") throw sessionError("SESSION_NOT_RUNNING", "训练已结束，不能重复结束");
+  const next = {
+    ...session,
+    version: session.version + 1,
+    status: "finished",
+  };
+  next.snapshots = Object.freeze([...session.snapshots, snapshot(next)]);
+  return Object.freeze(next);
+}
+
 export function rollbackTrainingSession(session, expectedVersion) {
   assertVersion(session, expectedVersion);
   if (session.status !== "running") throw sessionError("SESSION_NOT_RUNNING", "训练已结束，不能回退");

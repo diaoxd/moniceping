@@ -8,7 +8,7 @@ import { createInsightRepository, createMatchingRepository, createTradeConfigRep
 import { createRandomTrainingService } from "./src/application/random-training-service.mjs";
 import { createReviewService } from "./src/application/review-service.mjs";
 import { createPatternService } from "./src/application/pattern-service.mjs";
-import { advanceTrainingSession, executeTrainingMarketOrder, getPublicTrainingState, rollbackTrainingSession } from "./src/domain/session/training-session.mjs";
+import { advanceTrainingSession, executeTrainingMarketOrder, finishTrainingSession, getPublicTrainingState, rollbackTrainingSession } from "./src/domain/session/training-session.mjs";
 import { openAppDatabase } from "./src/infrastructure/app-database.mjs";
 import { loadTrainingStock, validateMarketDatabaseSchema } from "./src/infrastructure/market-repository.mjs";
 import { createTrainingSessionRepository } from "./src/infrastructure/training-session-repository.mjs";
@@ -244,7 +244,7 @@ async function handleApi(request, response, url) {
     return true;
   }
 
-  const trainingRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)(?:\/(advance|rollback|trade))?$/);
+  const trainingRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)(?:\/(advance|rollback|finish|trade))?$/);
   const reportRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)\/report$/);
   if (reportRoute && request.method === "GET") {
     const session = findTrainingSession(decodeURIComponent(reportRoute[1]));
@@ -283,6 +283,7 @@ async function handleApi(request, response, url) {
         let next;
         if (action === "advance") next = advanceTrainingSession(session, expectedVersion);
         else if (action === "rollback") next = rollbackTrainingSession(session, expectedVersion);
+        else if (action === "finish") next = finishTrainingSession(session, expectedVersion);
         else next = executeTrainingMarketOrder(session, expectedVersion, {
           id: randomUUID(), fillId: randomUUID(), side: body.side, quantity: Number(body.quantity),
         });

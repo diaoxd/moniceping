@@ -332,6 +332,8 @@ function render() {
   byId("reviewBtn").hidden = state.status !== "finished";
   byId("buyBtn").disabled = state.status !== "running" || buyQuantity() === 0;
   byId("sellBtn").disabled = state.status !== "running" || state.position.availableQuantity === 0;
+  byId("finishBtn").textContent = state.status === "running" ? "结束本局" : "下一局";
+  byId("finishBtn").disabled = false;
   document.querySelector(".top-actions span:nth-child(2)").textContent = state.status === "running" ? "训练中" : "已完成";
   byId("trainingStatus").textContent = state.datesRevealed ? "训练完成，真实日期已公开" : "真实日期已隐藏";
   syncQuantity();
@@ -368,6 +370,26 @@ async function startReview() {
   } catch (error) { byId("trainingStatus").textContent = error.message; }
 }
 
+async function finishOrStartNext() {
+  if (state.status !== "running") {
+    sessionStorage.removeItem("randomTrainingState");
+    location.href = "random.html";
+    return;
+  }
+  if (!window.confirm("确认结束本局？当前持仓将按当前收盘价计入最终资产，不会自动卖出。")) return;
+  try {
+    state = await requestJson(`/api/random-training-sessions/${encodeURIComponent(state.id)}/finish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expectedVersion: state.version }),
+    });
+    sessionStorage.setItem("randomTrainingState", JSON.stringify(state));
+    render();
+  } catch (error) {
+    byId("trainingStatus").textContent = error.message;
+  }
+}
+
 document.querySelectorAll(".chart-actions .ghost").forEach((button, index) => {
   if (index > 2) { button.hidden = true; return; }
   button.onclick = () => { period = PERIODS[index]; document.querySelectorAll(".chart-actions .ghost").forEach((item) => item.classList.remove("active")); button.classList.add("active"); render(); };
@@ -382,9 +404,13 @@ byId("prevBtn").onclick = () => act("rollback");
 byId("buyBtn").onclick = () => trade("buy");
 byId("sellBtn").onclick = () => trade("sell");
 byId("reviewBtn").onclick = startReview;
+const finishButton = document.querySelector(".control-buttons button:first-child");
+finishButton.id = "finishBtn";
+finishButton.textContent = "结束本局";
+finishButton.onclick = finishOrStartNext;
 byId("positionSlider").oninput = syncQuantity;
 document.querySelectorAll(".fraction").forEach((button) => { button.onclick = () => { byId("positionSlider").value = Math.round(Number(button.dataset.fraction) * 100); syncQuantity(); }; });
-document.querySelectorAll(".mode-tabs button,.direction-row .direction,.control-buttons button:first-child").forEach((button) => { button.disabled = true; button.style.opacity = ".45"; });
+document.querySelectorAll(".mode-tabs button,.direction-row .direction").forEach((button) => { button.disabled = true; button.style.opacity = ".45"; });
 byId("quantityInput").disabled = true;
 byId("priceInput").readOnly = true;
 window.onresize = draw;

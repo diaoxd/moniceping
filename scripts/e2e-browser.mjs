@@ -170,6 +170,22 @@ try {
   assert.match(page.url(), new RegExp(`review\\.html\\?id=.+&step=0`));
   assert.ok(completedSessionId);
 
+  await page.goto(`${base}/random.html`);
+  await page.getByLabel("随机种子（可选）").fill("manual-finish-seed");
+  await Promise.all([
+    page.waitForURL("**/index.html"),
+    page.getByRole("button", { name: "开始训练" }).click(),
+  ]);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "结束本局" }).click();
+  await page.waitForFunction(() => document.getElementById("finishBtn")?.textContent === "下一局");
+  assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState).status), "finished");
+  await Promise.all([
+    page.waitForURL("**/random.html"),
+    page.getByRole("button", { name: "下一局" }).click(),
+  ]);
+  assert.equal(await page.evaluate(() => sessionStorage.getItem("randomTrainingState")), null);
+
   assert.deepEqual(pageErrors, []);
   console.log("Browser E2E click flow passed");
 } finally {

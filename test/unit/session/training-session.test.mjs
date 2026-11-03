@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   advanceTrainingSession,
+  finishTrainingSession,
   createTrainingSession,
   getPublicTrainingState,
   executeTrainingMarketOrder,
@@ -190,6 +191,20 @@ test("the configured final advance finishes the session and prevents further adv
   assert.match(state.bars.weekly.at(-1).periodStart, /^\d{4}-\d{2}-\d{2}$/);
   assert.match(state.bars.monthly.at(-1).periodStart, /^\d{4}-\d{2}$/);
   assert.throws(() => advanceTrainingSession(session, session.version), (error) => error.code === "SESSION_NOT_RUNNING");
+});
+
+test("manual finish persists the current mark-to-market state and reveals dates", () => {
+  const session = create();
+  const finished = finishTrainingSession(session, session.version);
+  assert.equal(finished.status, "finished");
+  assert.equal(finished.advancesCompleted, 0);
+  assert.equal(finished.version, session.version + 1);
+  assert.equal(finished.snapshots.length, session.snapshots.length + 1);
+  const state = getPublicTrainingState(finished);
+  assert.equal(state.datesRevealed, true);
+  assert.match(state.bars.daily.at(-1).tradeDate, /^\d{4}-\d{2}-\d{2}$/);
+  assert.throws(() => finishTrainingSession(finished, finished.version), (error) => error.code === "SESSION_NOT_RUNNING");
+  assert.throws(() => finishTrainingSession(session, session.version + 1), (error) => error.code === "VERSION_CONFLICT");
 });
 
 test("invalid or duplicate daily data is rejected before a session is created", () => {
