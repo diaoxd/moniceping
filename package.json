@@ -9,6 +9,7 @@
     "test": "npm run test:unit && npm run test:data",
     "test:unit": "node --test",
     "test:data": "node scripts/run-python-tests.mjs",
+    "audit:market": "python3 -m tools.market_data.audit_market_db --database data/market.db",
     "test:e2e": "npm run test:e2e:api && npm run test:e2e:browser",
     "test:e2e:api": "node scripts/e2e-smoke.mjs",
     "test:e2e:browser": "node scripts/e2e-browser.mjs"
