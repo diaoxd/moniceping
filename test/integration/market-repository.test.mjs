@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { loadTrainingStocks } from "../../src/infrastructure/market-repository.mjs";
+import { loadTrainingStocks, validateMarketDatabaseSchema } from "../../src/infrastructure/market-repository.mjs";
 import { selectRandomTrainingCandidate } from "../../src/domain/session/random-candidate.mjs";
 
 function createDatabase() {
@@ -48,4 +48,20 @@ test("market repository excludes stocks without enough context or future bars", 
   addBar.run("000001", "2021-01-01", 100, 110, 90, 100, 1, 1, null, 0, null, null);
   assert.equal(loadTrainingStocks(database, { simulationBars: 200 }).some((stock) => stock.stockCode === "000001"), false);
   database.close();
+});
+
+test("market schema validation rejects empty or incomplete databases", () => {
+  const empty = new DatabaseSync(":memory:");
+  assert.throws(() => validateMarketDatabaseSchema(empty), (error) =>
+    error.code === "MARKET_SCHEMA_INVALID" && /stocks/.test(error.message));
+  empty.close();
+
+  const incomplete = new DatabaseSync(":memory:");
+  incomplete.exec("CREATE TABLE stocks (stock_code TEXT); CREATE TABLE daily_bars (stock_code TEXT)");
+  assert.throws(() => validateMarketDatabaseSchema(incomplete), (error) =>
+    error.code === "MARKET_SCHEMA_INVALID" && /stock_name/.test(error.message));
+  incomplete.close();
+  const complete = createDatabase();
+  assert.equal(validateMarketDatabaseSchema(complete), true);
+  complete.close();
 });

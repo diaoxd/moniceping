@@ -1,5 +1,25 @@
 import { HISTORY_CONTEXT_BARS } from "../domain/session/training-session.mjs";
 
+const REQUIRED_MARKET_COLUMNS = Object.freeze({
+  stocks: ["stock_code", "stock_name", "market", "board_type"],
+  daily_bars: ["stock_code", "trade_date", "open_cents", "high_cents", "low_cents", "close_cents", "volume", "amount_cents"],
+});
+
+export function validateMarketDatabaseSchema(database) {
+  const tables = new Set(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name));
+  for (const [table, requiredColumns] of Object.entries(REQUIRED_MARKET_COLUMNS)) {
+    if (!tables.has(table)) {
+      throw Object.assign(new Error(`行情数据库缺少${table}表，请先执行行情导入`), { code: "MARKET_SCHEMA_INVALID" });
+    }
+    const columns = new Set(database.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name));
+    const missingColumns = requiredColumns.filter((column) => !columns.has(column));
+    if (missingColumns.length > 0) {
+      throw Object.assign(new Error(`行情数据库${table}表缺少字段：${missingColumns.join(", ")}`), { code: "MARKET_SCHEMA_INVALID" });
+    }
+  }
+  return true;
+}
+
 export function loadTrainingStocks(database, { simulationBars, minimumStartDate = "2021-01-01" } = {}) {
   if (![150, 200].includes(simulationBars)) {
     throw Object.assign(new Error("模拟区间只能是150或200根"), { code: "INVALID_SIMULATION_BARS" });

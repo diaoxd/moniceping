@@ -10,7 +10,7 @@ import { createReviewService } from "./src/application/review-service.mjs";
 import { createPatternService } from "./src/application/pattern-service.mjs";
 import { advanceTrainingSession, executeTrainingMarketOrder, getPublicTrainingState, rollbackTrainingSession } from "./src/domain/session/training-session.mjs";
 import { openAppDatabase } from "./src/infrastructure/app-database.mjs";
-import { loadTrainingStock } from "./src/infrastructure/market-repository.mjs";
+import { loadTrainingStock, validateMarketDatabaseSchema } from "./src/infrastructure/market-repository.mjs";
 import { createTrainingSessionRepository } from "./src/infrastructure/training-session-repository.mjs";
 import { createReviewRepository } from "./src/infrastructure/review-repository.mjs";
 import { createPatternRepository } from "./src/infrastructure/pattern-repository.mjs";
@@ -28,7 +28,10 @@ let marketDatabase;
 try {
   marketDatabase = new DatabaseSync(marketDatabasePath);
   marketDatabase.exec("PRAGMA foreign_keys = ON");
+  validateMarketDatabaseSchema(marketDatabase);
 } catch (error) {
+  marketDatabase?.close();
+  marketDatabase = undefined;
   console.warn(`行情数据库不可用：${error.message}`);
 }
 const randomTraining = marketDatabase ? createRandomTrainingService({ marketDatabase }) : null;
