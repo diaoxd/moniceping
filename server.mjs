@@ -108,6 +108,7 @@ async function handleApi(request, response, url) {
         simulationBars: body.simulationBars === undefined ? 150 : Number(body.simulationBars),
         seed: body.seed === undefined ? `${Date.now()}` : String(body.seed),
         initialCapitalCents: body.initialCapitalCents === undefined ? 10_000_000 : Number(body.initialCapitalCents),
+        excludeStockCode: body.excludeStockCode === undefined ? null : String(body.excludeStockCode),
       });
       sessionRepository.save(result.session);
       trainingSessions.set(result.session.id, result.session);

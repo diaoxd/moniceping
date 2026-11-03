@@ -18,18 +18,21 @@ const base = `http://127.0.0.1:${port}`;
 function createMarketFixture() {
   const database = new DatabaseSync(marketPath);
   database.exec(readFileSync(join(root, "migrations/market/001_initial.sql"), "utf8"));
-  database.prepare(`INSERT INTO stocks(stock_code, stock_name, market, board_type, is_st,
+  const insertStock = database.prepare(`INSERT INTO stocks(stock_code, stock_name, market, board_type, is_st,
     adjust_type, first_trade_date, last_trade_date, bar_count, source_file, source_mtime_ns)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run("600000", "浏览器测试股", "SH", "MAIN", 0, "hfq", "2020-01-01", "2023-12-31", 800, "fixture", 1);
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  insertStock.run("600000", "浏览器测试股A", "SH", "MAIN", 0, "hfq", "2020-01-01", "2023-12-31", 800, "fixture-a", 1);
+  insertStock.run("000001", "浏览器测试股B", "SZ", "MAIN", 0, "hfq", "2020-01-01", "2023-12-31", 800, "fixture-b", 1);
   const insert = database.prepare(`INSERT INTO daily_bars(stock_code, trade_date, open_cents,
     high_cents, low_cents, close_cents, volume, amount_cents, pct_chg, is_suspended,
     limit_up_price_cents, limit_down_price_cents) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  for (let index = 0; index < 800; index += 1) {
-    const tradeDate = new Date(Date.UTC(2020, 0, index + 1)).toISOString().slice(0, 10);
-    const close = 1000 + index + Math.round(Math.sin(index / 13) * 80);
-    insert.run("600000", tradeDate, close - 5, close + 15, close - 20, close,
-      100_000 + index * 100, 100_000_000 + index * 1000, null, 0, null, null);
+  for (const [stockCode, offset] of [["600000", 0], ["000001", 200]]) {
+    for (let index = 0; index < 800; index += 1) {
+      const tradeDate = new Date(Date.UTC(2020, 0, index + 1)).toISOString().slice(0, 10);
+      const close = 1000 + offset + index + Math.round(Math.sin(index / 13) * 80);
+      insert.run(stockCode, tradeDate, close - 5, close + 15, close - 20, close,
+        100_000 + index * 100, 100_000_000 + index * 1000, null, 0, null, null);
+    }
   }
   database.close();
 }
@@ -180,11 +183,16 @@ try {
   await page.getByRole("button", { name: "结束本局" }).click();
   await page.waitForFunction(() => document.getElementById("finishBtn")?.textContent === "下一局");
   assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState).status), "finished");
-  await Promise.all([
-    page.waitForURL("**/random.html"),
-    page.getByRole("button", { name: "下一局" }).click(),
-  ]);
-  assert.equal(await page.evaluate(() => sessionStorage.getItem("randomTrainingState")), null);
+  const previousStockCode = await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState).stockCode);
+  await page.getByRole("button", { name: "下一局" }).click();
+  await page.waitForFunction((stockCode) => {
+    const next = JSON.parse(sessionStorage.getItem("randomTrainingState") || "null");
+    return next?.status === "running" && next.stockCode !== stockCode;
+  }, previousStockCode);
+  const nextState = await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState));
+  assert.notEqual(nextState.stockCode, previousStockCode);
+  assert.equal(nextState.simulationBars, 150);
+  assert.equal(nextState.initialCapitalCents, 100_000_000);
 
   assert.deepEqual(pageErrors, []);
   console.log("Browser E2E click flow passed");

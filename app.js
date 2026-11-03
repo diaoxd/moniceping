@@ -372,8 +372,28 @@ async function startReview() {
 
 async function finishOrStartNext() {
   if (state.status !== "running") {
-    sessionStorage.removeItem("randomTrainingState");
-    location.href = "random.html";
+    const previousStockCode = state.stockCode;
+    byId("finishBtn").disabled = true;
+    byId("finishBtn").textContent = "创建中...";
+    try {
+      state = await requestJson("/api/random-training-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          simulationBars: state.simulationBars,
+          initialCapitalCents: state.initialCapitalCents,
+          excludeStockCode: previousStockCode,
+        }),
+      });
+      sessionStorage.setItem("randomTrainingState", JSON.stringify(state));
+      period = "daily";
+      Object.assign(visibleByPeriod, DEFAULT_VISIBLE);
+      render();
+    } catch (error) {
+      byId("trainingStatus").textContent = error.message;
+      byId("finishBtn").disabled = false;
+      byId("finishBtn").textContent = "下一局";
+    }
     return;
   }
   if (!window.confirm("确认结束本局？当前持仓将按当前收盘价计入最终资产，不会自动卖出。")) return;

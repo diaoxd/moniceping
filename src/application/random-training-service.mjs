@@ -7,13 +7,16 @@ export function createRandomTrainingService({ marketDatabase, idFactory = random
   if (!marketDatabase) throw new Error("行情数据库不能为空");
   const rangesBySimulationBars = new Map();
   return {
-    create({ simulationBars = 150, seed = `${Date.now()}`, initialCapitalCents = 10_000_000 } = {}) {
+    create({ simulationBars = 150, seed = `${Date.now()}`, initialCapitalCents = 10_000_000, excludeStockCode = null } = {}) {
       let ranges = rangesBySimulationBars.get(simulationBars);
       if (!ranges) {
         ranges = loadTrainingRanges(marketDatabase, { simulationBars });
         rangesBySimulationBars.set(simulationBars, ranges);
       }
-      const selection = selectRandomTrainingRange({ ranges, simulationBars, seed });
+      const eligibleRanges = excludeStockCode
+        ? ranges.filter((range) => range.stockCode !== String(excludeStockCode))
+        : ranges;
+      const selection = selectRandomTrainingRange({ ranges: eligibleRanges, simulationBars, seed });
       const stock = loadTrainingStock(marketDatabase, selection.candidate.stockCode);
       const session = createTrainingSession({
         id: idFactory(),

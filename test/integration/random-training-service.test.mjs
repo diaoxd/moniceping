@@ -37,6 +37,7 @@ test("random training service preserves domain validation", () => {
   const service = createRandomTrainingService({ marketDatabase: db, idFactory: () => "session-fixed" });
   assert.throws(() => service.create({ simulationBars: 100 }), (error) => error.code === "INVALID_SIMULATION_BARS");
   assert.throws(() => service.create({ initialCapitalCents: 999_999 }), (error) => error.code === "INVALID_INITIAL_CAPITAL");
+  assert.throws(() => service.create({ excludeStockCode: "600000" }), (error) => error.code === "NO_TRAINING_CANDIDATE");
   db.close();
 });
 

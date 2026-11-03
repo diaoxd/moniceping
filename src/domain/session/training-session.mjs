@@ -206,6 +206,7 @@ export function getPublicTrainingState(session) {
     datesRevealed: revealDates,
     version: session.version,
     simulationBars: session.simulationBars,
+    initialCapitalCents: session.initialCapitalCents,
     trainingStartBarIndex: 0,
     advancesCompleted: session.advancesCompleted,
     advancesRemaining: session.simulationBars - session.advancesCompleted,
