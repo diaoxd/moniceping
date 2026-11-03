@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -49,12 +50,22 @@ async function waitForServer() {
   throw new Error("服务启动超时");
 }
 
+function startServer() {
+  return spawn(process.execPath, ["server.mjs"], {
+    cwd: root,
+    env: { ...process.env, PORT: String(port), APP_DATABASE: appPath, MARKET_DATABASE: marketPath },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+async function stopServer(server) {
+  if (!server || server.exitCode !== null) return;
+  server.kill("SIGTERM");
+  await once(server, "exit");
+}
+
 createMarketFixture();
-const child = spawn(process.execPath, ["server.mjs"], {
-  cwd: root,
-  env: { ...process.env, PORT: String(port), APP_DATABASE: appPath, MARKET_DATABASE: marketPath },
-  stdio: ["ignore", "pipe", "pipe"],
-});
+let child = startServer();
 
 try {
   await waitForServer();
@@ -91,20 +102,53 @@ try {
   })).payload;
   assert.equal(state.position.availableQuantity, 100);
 
+  const beforeRestart = {
+    id: state.id, version: state.version, cashCents: state.account.cashCents,
+    equityCents: state.account.equityCents, positionQuantity: state.position.quantity,
+    availableQuantity: state.position.availableQuantity, advancesCompleted: state.advancesCompleted,
+    orderCount: state.orders.length, fillCount: state.fills.length,
+  };
+  await stopServer(child);
+  child = startServer();
+  await waitForServer();
+  const recovered = await json(`/api/random-training-sessions/${state.id}`);
+  assert.equal(recovered.response.status, 200);
+  state = recovered.payload;
+  assert.deepEqual({
+    id: state.id, version: state.version, cashCents: state.account.cashCents,
+    equityCents: state.account.equityCents, positionQuantity: state.position.quantity,
+    availableQuantity: state.position.availableQuantity, advancesCompleted: state.advancesCompleted,
+    orderCount: state.orders.length, fillCount: state.fills.length,
+  }, beforeRestart);
+
+  const staleAdvance = await json(`/api/random-training-sessions/${state.id}/advance`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expectedVersion: state.version - 1 }),
+  });
+  assert.equal(staleAdvance.response.status, 409);
+  assert.equal(staleAdvance.payload.error.code, "VERSION_CONFLICT");
+
   state = (await json(`/api/random-training-sessions/${state.id}/trade`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ expectedVersion: state.version, side: "sell", quantity: 100 }),
   })).payload;
   assert.equal(state.position.quantity, 0);
 
+  const advanceDurations = [];
   while (state.status === "running") {
+    const startedAt = performance.now();
     state = (await json(`/api/random-training-sessions/${state.id}/advance`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ expectedVersion: state.version }),
     })).payload;
+    advanceDurations.push(performance.now() - startedAt);
   }
   assert.equal(state.advancesCompleted, 150);
   assert.equal(state.datesRevealed, true);
+  const totalAdvanceDuration = advanceDurations.reduce((sum, duration) => sum + duration, 0);
+  const maximumAdvanceDuration = Math.max(...advanceDurations);
+  assert.ok(totalAdvanceDuration < 30_000, `推进总耗时过长：${totalAdvanceDuration.toFixed(1)}ms`);
+  assert.ok(maximumAdvanceDuration < 2_000, `单次推进耗时过长：${maximumAdvanceDuration.toFixed(1)}ms`);
 
   const report = await json(`/api/random-training-sessions/${state.id}/report`);
   assert.equal(report.response.status, 200);
@@ -122,8 +166,8 @@ try {
   assert.equal((await fetch(`${base}/history.html`)).status, 200);
   assert.equal((await fetch(`${base}/trade-panel-tabs.js`)).status, 200);
   assert.equal((await fetch(`${base}/current-bar-details.js`)).status, 200);
-  console.log("E2E full training flow passed");
+  console.log(`E2E full training flow passed; advance avg ${(totalAdvanceDuration / advanceDurations.length).toFixed(1)}ms, max ${maximumAdvanceDuration.toFixed(1)}ms`);
 } finally {
-  child.kill("SIGTERM");
+  await stopServer(child);
   rmSync(temporaryDirectory, { recursive: true });
 }
