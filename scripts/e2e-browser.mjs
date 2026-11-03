@@ -71,13 +71,34 @@ try {
   assert.equal(await page.locator("#dateLabel").innerText(), "日期已隐藏");
   assert.match(await page.locator(".current-bar-details").innerText(), /开.*高.*低.*收/s);
 
+  const initialLayout = await page.evaluate(() => window.trainingChartLayout);
+  assert.equal(initialLayout.visibleCount, 100);
+  assert.ok(initialLayout.blankSlots > 0);
+  await page.keyboard.press("ArrowUp");
+  assert.equal((await page.evaluate(() => window.trainingChartLayout)).visibleCount, 90);
+  await page.locator("#priceChart").hover();
+  await page.mouse.wheel(0, -100);
+  assert.equal((await page.evaluate(() => window.trainingChartLayout)).visibleCount, 80);
+  await page.getByRole("button", { name: "重置图表视图" }).click();
+  assert.equal((await page.evaluate(() => window.trainingChartLayout)).visibleCount, 100);
+
   await page.keyboard.press("ArrowRight");
   await page.waitForFunction(() => document.getElementById("stepNumber")?.textContent === "1");
   assert.equal(await page.locator("#stepNumber").innerText(), "1");
 
   await page.getByRole("button", { name: "周线" }).click();
   assert.match(await page.locator(".ma-live-value").first().innerText(), /^MA/);
+  const weeklyLayout = await page.evaluate(() => window.trainingChartLayout);
+  assert.ok(weeklyLayout.visibleCount <= 40 && weeklyLayout.visibleCount > 10);
+  await page.keyboard.press("ArrowUp");
+  assert.equal((await page.evaluate(() => window.trainingChartLayout)).visibleCount, Math.max(10, weeklyLayout.visibleCount - 5));
+  await page.getByRole("button", { name: "月线" }).click();
+  const monthlyLayout = await page.evaluate(() => window.trainingChartLayout);
+  assert.ok(monthlyLayout.visibleCount <= 18 && monthlyLayout.visibleCount >= 6);
+  await page.keyboard.press("ArrowUp");
+  assert.equal((await page.evaluate(() => window.trainingChartLayout)).visibleCount, Math.max(6, monthlyLayout.visibleCount - 3));
   await page.getByRole("button", { name: "日线" }).click();
+  assert.equal((await page.evaluate(() => window.trainingChartLayout)).visibleCount, 100);
 
   await page.locator("#buyBtn").click();
   await page.waitForFunction(() => document.getElementById("tradeCount")?.textContent === "共 1 笔");

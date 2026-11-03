@@ -38,12 +38,11 @@
     const changeClass = changeCents >= 0 ? "rise" : "fall";
     details.innerHTML = `<b>当前 K 线 <em>编号 ${bar.index ?? bars.length}</em></b><span>开 <strong>${money(bar.openCents)}</strong></span><span>高 <strong>${money(bar.highCents)}</strong></span><span>低 <strong>${money(bar.lowCents)}</strong></span><span>收 <strong>${money(bar.closeCents)}</strong></span><span>涨跌额 <strong class="${changeClass}">${changeCents >= 0 ? "+" : ""}${money(changeCents)}</strong></span><span>涨跌幅 <strong class="${changeClass}">${changeRate >= 0 ? "+" : ""}${changeRate.toFixed(2)}%</strong></span><span>成交量 <strong>${bar.volume.toLocaleString()}</strong></span><span>换手 <strong>${turnover}</strong></span>`;
 
-    const shown = bars.slice(-200);
-    const minimum = Math.min(...shown.map((item) => item.lowCents));
-    const maximum = Math.max(...shown.map((item) => item.highCents));
-    const range = Math.max(1, maximum - minimum);
-    const y = 20 + (maximum - bar.closeCents) / range * (chart.clientHeight - 38);
-    const x = 10 + (shown.length - .5) * ((chart.clientWidth - 28) / shown.length);
+    const layout = window.trainingChartLayout;
+    const fallbackX = chart.clientWidth - 58;
+    const fallbackY = chart.clientHeight / 2;
+    const x = layout?.period === activePeriod() ? layout.latestX : fallbackX;
+    const y = layout?.period === activePeriod() ? layout.currentY : fallbackY;
     horizontalLine.style.top = `${y}px`;
     horizontalLine.querySelector("span").textContent = money(bar.closeCents);
     latestLine.style.left = `${x}px`;
