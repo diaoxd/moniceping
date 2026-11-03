@@ -179,10 +179,13 @@ try {
     page.waitForURL("**/index.html"),
     page.getByRole("button", { name: "开始训练" }).click(),
   ]);
+  await page.locator("#buyBtn").click();
+  await page.waitForFunction(() => document.getElementById("tradeCount")?.textContent === "共 1 笔");
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "结束本局" }).click();
   await page.waitForFunction(() => document.getElementById("finishBtn")?.textContent === "下一局");
   assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState).status), "finished");
+  const finalEquityCents = await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState).account.equityCents);
   const previousStockCode = await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState).stockCode);
   await page.getByRole("button", { name: "下一局" }).click();
   await page.waitForFunction((stockCode) => {
@@ -192,7 +195,8 @@ try {
   const nextState = await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState));
   assert.notEqual(nextState.stockCode, previousStockCode);
   assert.equal(nextState.simulationBars, 150);
-  assert.equal(nextState.initialCapitalCents, 100_000_000);
+  assert.equal(nextState.initialCapitalCents, finalEquityCents);
+  assert.equal(nextState.account.equityCents, finalEquityCents);
 
   assert.deepEqual(pageErrors, []);
   console.log("Browser E2E click flow passed");

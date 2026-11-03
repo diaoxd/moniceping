@@ -381,7 +381,7 @@ async function finishOrStartNext() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           simulationBars: state.simulationBars,
-          initialCapitalCents: state.initialCapitalCents,
+          initialCapitalCents: state.account.equityCents,
           excludeStockCode: previousStockCode,
         }),
       });

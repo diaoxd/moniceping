@@ -411,7 +411,10 @@ function serveStatic(response, pathname) {
     sendJson(response, 404, { error: { code: "NOT_FOUND", message: "资源不存在" } });
     return;
   }
-  response.writeHead(200, { "Content-Type": mimeTypes[extname(filePath)] || "application/octet-stream" });
+  response.writeHead(200, {
+    "Content-Type": mimeTypes[extname(filePath)] || "application/octet-stream",
+    "Cache-Control": [".html", ".js", ".css"].includes(extname(filePath)) ? "no-store" : "public, max-age=3600",
+  });
   createReadStream(filePath).pipe(response);
 }
 
