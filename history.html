@@ -1,1 +1,31 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>历史训练</title><link rel="stylesheet" href="history.css"></head><body><main><header><h1>历史训练</h1><select id="status"><option value="">全部状态</option><option value="running">进行中</option><option value="finished">已完成</option></select></header><p id="message"></p><section id="list"></section><nav><button id="prev">上一页</button><span id="page"></span><button id="next">下一页</button></nav></main><script src="history.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>历史训练</title>
+    <link rel="stylesheet" href="history.css" />
+  </head>
+  <body>
+    <main>
+    <header>
+      <div class="history-title">
+        <a href="dashboard.html">← 返回训练总览</a>
+        <h1>历史训练</h1>
+      </div>
+        <select id="status">
+          <option value="">全部状态</option>
+          <option value="running">进行中</option>
+          <option value="finished">已完成</option>
+        </select>
+      </header>
+      <p id="message"></p>
+      <section id="list"></section>
+      <nav>
+        <button id="prev">上一页</button><span id="page"></span
+        ><button id="next">下一页</button>
+      </nav>
+    </main>
+    <script src="history.js"></script>
+  </body>
+</html>

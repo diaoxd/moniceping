@@ -8,6 +8,7 @@ import { createInsightRepository, createMatchingRepository, createTradeConfigRep
 import { createRandomTrainingService } from "./src/application/random-training-service.mjs";
 import { createReviewService } from "./src/application/review-service.mjs";
 import { createPatternService } from "./src/application/pattern-service.mjs";
+import { summarizeTrainingDashboard } from "./src/application/training-dashboard.mjs";
 import { advanceTrainingSession, executeTrainingMarketOrder, finishTrainingSession, getPublicTrainingState, rollbackTrainingSession } from "./src/domain/session/training-session.mjs";
 import { openAppDatabase } from "./src/infrastructure/app-database.mjs";
 import { loadTrainingStock, validateMarketDatabaseSchema } from "./src/infrastructure/market-repository.mjs";
@@ -94,6 +95,17 @@ function insightRoute(pathname) {
 async function handleApi(request, response, url) {
   if (url.pathname === "/api/health" && request.method === "GET") {
     sendJson(response, 200, { status: "ok", marketDatabase: Boolean(randomTraining) });
+    return true;
+  }
+
+  if (url.pathname === "/api/training-dashboard" && request.method === "GET") {
+    const sessions = appDatabase.prepare(`SELECT rowid AS sequence, id, stock_name AS stockName, status, advances_completed AS advancesCompleted,
+      initial_capital_cents AS initialCapitalCents, equity_cents AS equityCents, updated_at AS updatedAt
+      FROM training_sessions`).all();
+    const fills = appDatabase.prepare(`SELECT session_id AS sessionId, side, realized_profit_cents AS realizedProfitCents FROM fills`).all();
+    const snapshots = appDatabase.prepare(`SELECT session_id AS sessionId, sequence, advances_completed AS advancesCompleted,
+      equity_cents AS equityCents, position_quantity AS positionQuantity FROM session_snapshots`).all();
+    sendJson(response, 200, summarizeTrainingDashboard({ sessions, fills, snapshots }));
     return true;
   }
 
@@ -405,7 +417,7 @@ async function handleApi(request, response, url) {
 }
 
 function serveStatic(response, pathname) {
-  const requested = pathname === "/" ? "index.html" : pathname.slice(1);
+  const requested = pathname === "/" ? "dashboard.html" : pathname.slice(1);
   const filePath = join(root, normalize(requested));
   if (!filePath.startsWith(root) || !existsSync(filePath) || !statSync(filePath).isFile()) {
     sendJson(response, 404, { error: { code: "NOT_FOUND", message: "资源不存在" } });

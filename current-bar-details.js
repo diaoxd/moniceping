@@ -28,15 +28,18 @@
 
   function render() {
     const state = JSON.parse(sessionStorage.getItem("randomTrainingState") || "null");
-    const bars = state?.bars?.[activePeriod()] || [];
-    const bar = bars.at(-1);
+    const currentPeriod = activePeriod();
+    const bars = state?.bars?.[currentPeriod] || [];
+    const selection = window.trainingSelectedBar;
+    const selectedIndex = selection?.period === currentPeriod ? selection.index : bars.length - 1;
+    const bar = bars[selectedIndex];
     if (!bar) return;
-    const previous = bars.at(-2);
+    const previous = bars[selectedIndex - 1];
     const changeCents = previous ? bar.closeCents - previous.closeCents : 0;
     const changeRate = previous?.closeCents ? changeCents / previous.closeCents * 100 : 0;
     const turnover = bar.turnoverRateMillionths == null ? "暂无数据" : `${(bar.turnoverRateMillionths / 10000).toFixed(2)}%`;
     const changeClass = changeCents >= 0 ? "rise" : "fall";
-    details.innerHTML = `<b>当前 K 线 <em>编号 ${bar.index ?? bars.length}</em></b><span>开 <strong>${money(bar.openCents)}</strong></span><span>高 <strong>${money(bar.highCents)}</strong></span><span>低 <strong>${money(bar.lowCents)}</strong></span><span>收 <strong>${money(bar.closeCents)}</strong></span><span>涨跌额 <strong class="${changeClass}">${changeCents >= 0 ? "+" : ""}${money(changeCents)}</strong></span><span>涨跌幅 <strong class="${changeClass}">${changeRate >= 0 ? "+" : ""}${changeRate.toFixed(2)}%</strong></span><span>成交量 <strong>${bar.volume.toLocaleString()}</strong></span><span>换手 <strong>${turnover}</strong></span>`;
+    details.innerHTML = `<b>${selection?.period === currentPeriod ? "选中" : "当前"} K 线 <em>编号 ${bar.index ?? selectedIndex}</em></b><span>开 <strong>${money(bar.openCents)}</strong></span><span>高 <strong>${money(bar.highCents)}</strong></span><span>低 <strong>${money(bar.lowCents)}</strong></span><span>收 <strong>${money(bar.closeCents)}</strong></span><span>涨跌额 <strong class="${changeClass}">${changeCents >= 0 ? "+" : ""}${money(changeCents)}</strong></span><span>涨跌幅 <strong class="${changeClass}">${changeRate >= 0 ? "+" : ""}${changeRate.toFixed(2)}%</strong></span><span>成交量 <strong>${bar.volume.toLocaleString()}</strong></span><span>换手 <strong>${turnover}</strong></span>`;
 
     const layout = window.trainingChartLayout;
     const fallbackX = chart.clientWidth - 58;

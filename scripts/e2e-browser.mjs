@@ -62,7 +62,13 @@ try {
   page.on("pageerror", (error) => pageErrors.push(error.message));
   page.on("console", (message) => { if (message.type() === "error") pageErrors.push(message.text()); });
 
-  await page.goto(`${base}/random.html`);
+  await page.goto(base);
+  await page.waitForURL("**/");
+  await page.waitForSelector("#primaryMetrics .metric");
+  await Promise.all([
+    page.waitForURL("**/random.html"),
+    page.getByRole("link", { name: /随机训练/ }).click(),
+  ]);
   await page.getByLabel("随机种子（可选）").fill("browser-e2e-seed");
   await Promise.all([
     page.waitForURL("**/index.html"),
@@ -72,7 +78,13 @@ try {
   await page.waitForFunction(() => getComputedStyle(document.querySelector(".brand .muted")).display === "none");
   assert.equal(await page.locator(".brand .muted").isVisible(), false);
   assert.equal(await page.locator(".instrument-row .eyebrow").isVisible(), false);
-  assert.equal(await page.locator(".trade-panel > .top-actions").count(), 1);
+  assert.equal(await page.locator(".panel-title > .top-actions").count(), 1);
+  assert.equal(await page.locator(".trade-panel .eyebrow").count(), 0);
+  const panelTitleCenters = await page.evaluate(() => [".panel-title h2", ".panel-title > .top-actions", ".step-label"].map((selector) => {
+    const rect = document.querySelector(selector).getBoundingClientRect();
+    return rect.top + rect.height / 2;
+  }));
+  assert.ok(Math.max(...panelTitleCenters) - Math.min(...panelTitleCenters) < 8);
   const compactLayout = await page.evaluate(() => {
     const center = (selector) => {
       const rect = document.querySelector(selector).getBoundingClientRect();
@@ -92,6 +104,11 @@ try {
   assert.ok(compactLayout.volumeBottom <= compactLayout.viewportHeight);
   assert.ok(compactLayout.documentHeight <= compactLayout.viewportHeight);
   assert.match(await page.locator(".instrument-row h1").innerText(), /浏览器测试股/);
+  const expectedDailyChange = await page.evaluate(() => {
+    const bars = JSON.parse(sessionStorage.randomTrainingState).bars.daily;
+    return `${bars.at(-1).closeCents > bars.at(-2).closeCents ? "+" : ""}${((bars.at(-1).closeCents - bars.at(-2).closeCents) / bars.at(-2).closeCents * 100).toFixed(2)}%`;
+  });
+  assert.equal(await page.locator(".price-change").innerText(), expectedDailyChange);
   assert.equal(await page.locator("#stepNumber").innerText(), "0");
   assert.equal(await page.locator("#dateLabel").innerText(), "日期已隐藏");
   assert.match(await page.locator(".current-bar-details").innerText(), /开.*高.*低.*收/s);
@@ -101,6 +118,23 @@ try {
   assert.ok(initialLayout.blankSlots > 0);
   assert.ok(initialLayout.trainingStartX !== null);
   assert.equal(initialLayout.trainingStartX, initialLayout.latestX);
+  const selectedBarResult = await page.evaluate(() => {
+    const layout = window.trainingChartLayout;
+    const visibleIndex = layout.shownCount - 5;
+    const absoluteIndex = layout.offset + visibleIndex;
+    const canvas = document.getElementById("priceChart");
+    const rect = canvas.getBoundingClientRect();
+    canvas.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: rect.left + layout.firstX + visibleIndex * layout.step, clientY: rect.top + rect.height / 2 }));
+    const state = JSON.parse(sessionStorage.randomTrainingState);
+    return { selected: state.bars.daily[absoluteIndex], latest: state.bars.daily.at(-1), absoluteIndex };
+  });
+  await page.waitForFunction(() => document.querySelector(".current-bar-details")?.textContent?.includes("选中 K 线"));
+  assert.equal(await page.locator("#openVal").innerText(), (selectedBarResult.selected.openCents / 100).toFixed(2));
+  assert.equal(await page.locator("#highVal").innerText(), (selectedBarResult.selected.highCents / 100).toFixed(2));
+  assert.equal(await page.locator("#lowVal").innerText(), (selectedBarResult.selected.lowCents / 100).toFixed(2));
+  assert.equal(await page.locator("#closeVal").innerText(), (selectedBarResult.selected.closeCents / 100).toFixed(2));
+  assert.match(await page.locator(".current-bar-details").innerText(), new RegExp(`编号 ${selectedBarResult.selected.index}`));
+  assert.equal(Number(await page.locator("#priceInput").inputValue()), selectedBarResult.latest.closeCents / 100);
   await page.waitForFunction(() => {
     const line = document.querySelector(".current-price-line");
     const label = line?.querySelector("span");
@@ -117,6 +151,7 @@ try {
 
   await page.keyboard.press("ArrowRight");
   await page.waitForFunction(() => document.getElementById("stepNumber")?.textContent === "1");
+  assert.match(await page.locator(".current-bar-details").innerText(), /当前 K 线/);
   assert.equal(await page.locator("#stepNumber").innerText(), "1");
   const advancedLayout = await page.evaluate(() => window.trainingChartLayout);
   assert.ok(advancedLayout.trainingStartX < advancedLayout.latestX);
@@ -124,6 +159,11 @@ try {
 
   await page.getByRole("button", { name: "周线" }).click();
   assert.match(await page.locator(".ma-live-value").first().innerText(), /^MA/);
+  const expectedWeeklyChange = await page.evaluate(() => {
+    const bars = JSON.parse(sessionStorage.randomTrainingState).bars.weekly;
+    return `${bars.at(-1).closeCents > bars.at(-2).closeCents ? "+" : ""}${((bars.at(-1).closeCents - bars.at(-2).closeCents) / bars.at(-2).closeCents * 100).toFixed(2)}%`;
+  });
+  assert.equal(await page.locator(".price-change").innerText(), expectedWeeklyChange);
   const weeklyLayout = await page.evaluate(() => window.trainingChartLayout);
   assert.ok(weeklyLayout.visibleCount <= 40 && weeklyLayout.visibleCount > 10);
   await page.keyboard.press("ArrowUp");
@@ -136,6 +176,11 @@ try {
   await page.getByRole("button", { name: "日线" }).click();
   assert.equal((await page.evaluate(() => window.trainingChartLayout)).visibleCount, 100);
 
+  await page.getByRole("button", { name: "买入", exact: true }).first().click();
+  const maximumBuyQuantity = await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState).maximumBuyQuantity);
+  assert.equal(Number(await page.locator("#quantityInput").inputValue()), maximumBuyQuantity);
+  await page.getByRole("button", { name: "1/3", exact: true }).click();
+  assert.equal(Number(await page.locator("#quantityInput").inputValue()), Math.floor(maximumBuyQuantity / 3 / 100) * 100);
   await page.locator("#buyBtn").click();
   await page.waitForFunction(() => document.getElementById("tradeCount")?.textContent === "共 1 笔");
   assert.match(await page.locator("#holding").innerText(), /股 \/ 可卖 0 股/);
@@ -155,8 +200,15 @@ try {
   await page.locator("#observeBtn").click();
   await page.waitForFunction(() => document.getElementById("stepNumber")?.textContent === "2");
   assert.match(await page.locator("#holding").innerText(), /可卖 [1-9][0-9,]* 股/);
+  await page.getByRole("button", { name: "卖出", exact: true }).first().click();
+  const availableQuantity = await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState).position.availableQuantity);
+  assert.equal(Number(await page.locator("#quantityInput").inputValue()), availableQuantity);
+  await page.getByRole("button", { name: "1/2", exact: true }).click();
+  assert.equal(Number(await page.locator("#quantityInput").inputValue()), Math.floor(availableQuantity / 2 / 100) * 100);
+  await page.locator("#quantityInput").fill("100");
   await page.locator("#sellBtn").click();
   await page.waitForFunction(() => document.getElementById("tradeCount")?.textContent === "共 2 笔");
+  assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState).fills.at(-1).quantity), 100);
 
   const completedSessionId = await page.evaluate(async () => {
     let state = JSON.parse(sessionStorage.getItem("randomTrainingState"));
@@ -203,13 +255,19 @@ try {
   ]);
   await page.locator("#buyBtn").click();
   await page.waitForFunction(() => document.getElementById("tradeCount")?.textContent === "共 1 笔");
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "结束本局" }).click();
-  await page.waitForFunction(() => document.getElementById("finishBtn")?.textContent === "下一局");
-  assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState).status), "finished");
+  await page.getByRole("button", { name: "结束本局", exact: true }).click();
+  await page.waitForSelector("#finishDialog:not([hidden])");
+  assert.match(await page.locator("#finishDialog").innerText(), /要结束这局训练吗？/);
+  assert.equal(await page.locator("#finishRemaining").innerText(), "150");
+  await page.getByRole("button", { name: "继续训练" }).click();
+  assert.equal(await page.locator("#finishDialog").isHidden(), true);
+  assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState).status), "running");
+
+  await page.getByRole("button", { name: "结束本局测评" }).click();
   const finalEquityCents = await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState).account.equityCents);
   const previousStockCode = await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState).stockCode);
   await page.getByRole("button", { name: "下一局" }).click();
+  assert.equal(await page.getByRole("button", { name: "下一局" }).isDisabled(), true);
   await page.waitForFunction((stockCode) => {
     const next = JSON.parse(sessionStorage.getItem("randomTrainingState") || "null");
     return next?.status === "running" && next.stockCode !== stockCode;
@@ -219,6 +277,38 @@ try {
   assert.equal(nextState.simulationBars, 150);
   assert.equal(nextState.initialCapitalCents, finalEquityCents);
   assert.equal(nextState.account.equityCents, finalEquityCents);
+
+  await page.getByRole("button", { name: "结束本局测评" }).click();
+  await Promise.all([
+    page.waitForURL("**/dashboard.html"),
+    page.getByRole("button", { name: "确认退出" }).click(),
+  ]);
+  await page.waitForSelector("#primaryMetrics .metric");
+  assert.match(await page.locator(".summary-band").innerText(), /当前资产/);
+  assert.match(await page.locator(".summary-band").innerText(), /累计盈亏/);
+  await page.getByRole("link", { name: "历史训练", exact: true }).click();
+  await page.waitForURL("**/history.html");
+  await Promise.all([
+    page.waitForURL("**/dashboard.html"),
+    page.getByRole("link", { name: "返回训练总览" }).click(),
+  ]);
+  const dashboardSummary = await page.evaluate(() => fetch("/api/training-dashboard").then((response) => response.json()));
+  assert.equal(Number((await page.locator("#currentEquity").innerText()).replaceAll(",", "")), dashboardSummary.currentEquityCents / 100);
+  assert.equal(dashboardSummary.currentEquityCents, dashboardSummary.startingCapitalCents + dashboardSummary.totalProfitCents);
+  assert.match(await page.locator("#secondaryMetrics").innerText(), /累计交易时间/);
+  const curveHasPixels = await page.locator("#equityCurve").evaluate((canvas) => [...canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data].some((value) => value !== 0));
+  assert.equal(curveHasPixels, true);
+  const savedCapitalCents = await page.evaluate(() => Number(localStorage.getItem("randomTrainingCapitalCents")));
+  assert.equal(savedCapitalCents, dashboardSummary.currentEquityCents);
+  await page.goto(`${base}/random.html`);
+  assert.equal(Number(await page.getByLabel("初始资金（元）").inputValue()), savedCapitalCents / 100);
+  await page.goto(`${base}/dashboard.html`);
+  await page.waitForSelector("#primaryMetrics .metric");
+  await Promise.all([
+    page.waitForURL("**/random.html"),
+    page.getByRole("button", { name: "重置训练资金" }).click(),
+  ]);
+  assert.equal(Number(await page.getByLabel("初始资金（元）").inputValue()), 1_000_000);
 
   assert.deepEqual(pageErrors, []);
   console.log("Browser E2E click flow passed");

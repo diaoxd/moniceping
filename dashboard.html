@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>个人训练总览</title>
+    <link rel="stylesheet" href="dashboard.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand"><span>K</span>交易训练助手</div>
+      <nav>
+        <a class="active" href="dashboard.html">训练总览</a
+        ><a href="history.html">历史训练</a>
+      </nav>
+    </header>
+    <main>
+      <section class="summary-band">
+        <div class="summary-head">
+          <div>
+            <p>当前资产</p>
+            <h1 id="currentEquity">--</h1>
+            <small id="summaryCaption">正在汇总训练记录...</small>
+          </div>
+          <button id="resetCapital" type="button">重置训练资金</button>
+        </div>
+        <div id="primaryMetrics" class="primary-metrics"></div>
+        <div id="secondaryMetrics" class="secondary-metrics"></div>
+        <div class="equity-curve">
+          <div class="curve-head"><div><h2>资金曲线</h2><p>按每局训练结束后的累计资产绘制</p></div><strong id="curveChange">--</strong></div>
+          <canvas id="equityCurve" height="180"></canvas>
+        </div>
+      </section>
+      <section class="actions-band">
+        <div class="section-head">
+          <div>
+            <h2>继续训练</h2>
+            <p>一期仅开放随机训练，所有入口均可实际使用。</p>
+          </div>
+        </div>
+        <div class="action-grid">
+          <a class="action primary" href="random.html"
+            ><span class="action-icon">↗</span><strong>随机训练</strong
+            ><small>继承当前资产开始下一局</small></a
+          ><a class="action" href="history.html"
+            ><span class="action-icon">≡</span><strong>历史训练</strong
+            ><small>查看结算报告与复盘</small></a
+          ><a class="action" id="latestReport" href="history.html"
+            ><span class="action-icon">▥</span><strong>最近结算</strong
+            ><small>查看最近一局明细与资金曲线</small></a
+          >
+        </div>
+      </section>
+      <p id="status" role="status"></p>
+    </main>
+    <script src="dashboard.js"></script>
+  </body>
+</html>

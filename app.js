@@ -1,6 +1,9 @@
 let state = JSON.parse(sessionStorage.getItem("randomTrainingState") || "null");
 let period = "daily";
 let indicatorMode = "volume";
+let finishActionPending = false;
+let selectedTradeSide = "buy";
+let selectedAllocation = 0.2;
 
 const pc = document.getElementById("priceChart");
 const vc = document.getElementById("volumeChart");
@@ -10,6 +13,8 @@ const DEFAULT_VISIBLE = Object.freeze({ daily: 100, weekly: 40, monthly: 18 });
 const MIN_VISIBLE = Object.freeze({ daily: 20, weekly: 10, monthly: 6 });
 const ZOOM_STEP = Object.freeze({ daily: 10, weekly: 5, monthly: 3 });
 const visibleByPeriod = { ...DEFAULT_VISIBLE };
+const selectedIndexByPeriod = { daily: null, weekly: null, monthly: null };
+const TRAINING_CAPITAL_KEY = "randomTrainingCapitalCents";
 
 async function requestJson(url, options) {
   const response = await fetch(url, options);
@@ -20,6 +25,28 @@ async function requestJson(url, options) {
 
 const money = (cents) => (cents / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const rate = (millionths) => `${(millionths / 10000).toFixed(2)}%`;
+
+function latestPriceChange(bars) {
+  if (bars.length < 2) return { amountCents: 0, percent: 0 };
+  const latestClose = bars.at(-1).closeCents;
+  const previousClose = bars.at(-2).closeCents;
+  if (previousClose === 0) return { amountCents: 0, percent: 0 };
+  return { amountCents: latestClose - previousClose, percent: (latestClose - previousClose) / previousClose * 100 };
+}
+
+function renderLatestPriceChange(bars) {
+  const change = latestPriceChange(bars);
+  const direction = change.amountCents > 0 ? "up" : change.amountCents < 0 ? "down" : "flat";
+  const sign = change.amountCents > 0 ? "+" : "";
+  const quote = document.querySelector(".quote");
+  const price = byId("currentPrice");
+  const changeLabel = quote.querySelector(".price-change, span");
+  quote.dataset.direction = direction;
+  price.className = direction;
+  changeLabel.className = `price-change ${direction}`;
+  changeLabel.textContent = `${sign}${change.percent.toFixed(2)}%`;
+  changeLabel.title = `较前一${period === "daily" ? "日" : period === "weekly" ? "周" : "月"}收盘价${sign}${money(change.amountCents)}`;
+}
 
 function colorMetric(element, value) {
   element.style.color = value > 0 ? "var(--red)" : value < 0 ? "var(--green)" : "#edf2f6";
@@ -214,6 +241,8 @@ function draw() {
   const [context, width, height] = resize(pc);
   const padding = { left: 10, right: 58, top: 20, bottom: 18 };
   const latest = viewport.shown.at(-1);
+  const selectedAbsoluteIndex = selectedIndexByPeriod[period];
+  const selectedBar = selectedAbsoluteIndex === null ? latest : bars[selectedAbsoluteIndex] || latest;
   const levels = [
     { value: latest.closeCents * 1.1, label: `+10% ${money(latest.closeCents * 1.1)}` },
     { value: latest.closeCents * 1.05, label: `+5% ${money(latest.closeCents * 1.05)}` },
@@ -259,15 +288,28 @@ function draw() {
     const calculated = window.trainingIndicatorSettings?.calculateMA?.(bars, length) || movingAverage(bars, length);
     plotLine(context, calculated.slice(viewport.offset), colors[index], x, y);
   });
+  const selectedVisibleIndex = selectedAbsoluteIndex === null ? -1 : selectedAbsoluteIndex - viewport.offset;
+  if (selectedVisibleIndex >= 0 && selectedVisibleIndex < viewport.shown.length) {
+    const selected = viewport.shown[selectedVisibleIndex];
+    const halfWidth = Math.max(5, step * 0.42);
+    const top = y(selected.highCents) - 5;
+    const bottom = y(selected.lowCents) + 5;
+    context.strokeStyle = "#00b7ff";
+    context.lineWidth = 2;
+    context.strokeRect(x(selectedVisibleIndex) - halfWidth, top, halfWidth * 2, Math.max(12, bottom - top));
+  }
   const trainingStartX = drawTrainingStart(context, viewport.shown, x, padding.top, height - padding.bottom);
   drawSwing(context, references.high, "前高", viewport.offset, x, y, plotRight, -1);
   drawSwing(context, references.low, "近15低", viewport.offset, x, y, plotRight, 1);
   drawPriceAxis(context, width, padding.right, levels, y);
-  window.trainingChartLayout = { period, latestX: x(viewport.shown.length - 1), currentY: y(latest.closeCents), plotRight, trainingStartX, visibleCount: viewport.visibleCount, blankSlots: viewport.blankSlots };
-  ["currentPrice", "priceTag", "closeVal"].forEach((id) => { byId(id).textContent = money(latest.closeCents); });
-  byId("openVal").textContent = money(latest.openCents);
-  byId("highVal").textContent = money(latest.highCents);
-  byId("lowVal").textContent = money(latest.lowCents);
+  window.trainingChartLayout = { period, firstX: x(0), step, offset: viewport.offset, shownCount: viewport.shown.length, latestX: x(viewport.shown.length - 1), currentY: y(latest.closeCents), plotRight, trainingStartX, visibleCount: viewport.visibleCount, blankSlots: viewport.blankSlots };
+  window.trainingSelectedBar = selectedAbsoluteIndex === null ? null : { period, index: selectedAbsoluteIndex };
+  ["currentPrice", "priceTag"].forEach((id) => { byId(id).textContent = money(latest.closeCents); });
+  renderLatestPriceChange(bars);
+  byId("openVal").textContent = money(selectedBar.openCents);
+  byId("highVal").textContent = money(selectedBar.highCents);
+  byId("lowVal").textContent = money(selectedBar.lowCents);
+  byId("closeVal").textContent = money(selectedBar.closeCents);
   byId("priceInput").value = money(latest.closeCents).replaceAll(",", "");
   drawIndicatorPanel(bars, viewport);
 }
@@ -287,6 +329,16 @@ function installChartControls() {
   reset.onclick = () => { visibleByPeriod[period] = DEFAULT_VISIBLE[period]; draw(); };
   chart.appendChild(reset);
   chart.addEventListener("wheel", (event) => { event.preventDefault(); zoomChart(event.deltaY < 0 ? -1 : 1); }, { passive: false });
+  pc.addEventListener("click", (event) => {
+    const layout = window.trainingChartLayout;
+    if (!layout || layout.period !== period) return;
+    const canvasX = event.clientX - pc.getBoundingClientRect().left;
+    const visibleIndex = Math.round((canvasX - layout.firstX) / layout.step);
+    if (visibleIndex < 0 || visibleIndex >= layout.shownCount) return;
+    selectedIndexByPeriod[period] = layout.offset + visibleIndex;
+    draw();
+    window.dispatchEvent(new CustomEvent("training-state-rendered"));
+  });
   const style = document.createElement("link");
   style.rel = "stylesheet";
   style.href = "chart-viewport.css";
@@ -299,17 +351,30 @@ function installWorkspaceLayout() {
   style.href = "workspace-layout.css";
   document.head.appendChild(style);
   const topActions = document.querySelector(".top-actions");
-  const tradePanel = document.querySelector(".trade-panel");
-  if (topActions && tradePanel) tradePanel.prepend(topActions);
+  const panelTitle = document.querySelector(".panel-title");
+  if (topActions && panelTitle) panelTitle.insertBefore(topActions, panelTitle.querySelector(".step-label"));
 }
 
-function selectedPercent() { return Number(byId("positionSlider").value); }
-function buyQuantity() { return Math.floor(state.maximumBuyQuantity * selectedPercent() / 100 / 100) * 100; }
+function selectedPercent() { return selectedAllocation * 100; }
+function buyQuantity() { return Math.floor(state.maximumBuyQuantity * selectedAllocation / 100) * 100; }
 function sellQuantity() {
   const available = state.position.availableQuantity;
-  return selectedPercent() === 100 ? available : Math.floor(available * selectedPercent() / 100 / 100) * 100;
+  return selectedAllocation === 1 ? available : Math.floor(available * selectedAllocation / 100) * 100;
 }
-function syncQuantity() { byId("positionPct").textContent = `${selectedPercent()}%`; byId("quantityInput").value = buyQuantity(); }
+function syncQuantity() {
+  const percent = selectedPercent();
+  byId("positionPct").textContent = `${Number.isInteger(percent) ? percent : percent.toFixed(2)}%`;
+  byId("quantityInput").value = selectedTradeSide === "buy" ? buyQuantity() : sellQuantity();
+  document.querySelectorAll(".direction-row .direction").forEach((button) => button.classList.toggle("active", button.dataset.side === selectedTradeSide));
+}
+
+function selectTradeSide(side) {
+  selectedTradeSide = side;
+  selectedAllocation = 1;
+  byId("positionSlider").value = 100;
+  document.querySelectorAll(".fraction").forEach((button) => button.classList.remove("active"));
+  syncQuantity();
+}
 
 function syncPerformance() {
   byId("winRate").textContent = state.performance.winRateMillionths === null ? "--" : rate(state.performance.winRateMillionths);
@@ -323,7 +388,7 @@ function syncPerformance() {
 }
 
 function render() {
-  if (!state) { location.replace("random.html"); return; }
+  if (!state) { location.replace("dashboard.html"); return; }
   document.querySelector(".instrument-row h1").innerHTML = `${state.stockName} <span class="ticker">${state.stockCode}</span>`;
   const latest = state.bars[period].at(-1);
   byId("dateLabel").textContent = state.datesRevealed ? (latest.tradeDate || latest.periodStart) : "日期已隐藏";
@@ -332,6 +397,7 @@ function render() {
   byId("cash").textContent = money(state.account.cashCents);
   byId("equity").textContent = money(state.account.equityCents);
   byId("holding").textContent = `${state.position.quantity.toLocaleString()} 股 / 可卖 ${state.position.availableQuantity.toLocaleString()} 股`;
+  if (state.status === "finished") localStorage.setItem(TRAINING_CAPITAL_KEY, String(state.account.equityCents));
   syncPerformance();
   Object.assign(byId("timeSlider"), { min: 0, max: state.simulationBars, value: state.advancesCompleted, disabled: true });
   const rollbackDisabled = state.advancesCompleted === 0 || state.position.quantity > 0 || state.status !== "running";
@@ -358,19 +424,27 @@ async function act(action) {
   try {
     state = await requestJson(`/api/random-training-sessions/${encodeURIComponent(state.id)}/${action}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedVersion: state.version }) });
     sessionStorage.setItem("randomTrainingState", JSON.stringify(state));
+    selectedIndexByPeriod[period] = null;
   } catch (error) { byId("trainingStatus").textContent = error.message; }
   render();
 }
 
 async function trade(side) {
-  const quantity = side === "buy" ? buyQuantity() : sellQuantity();
-  if (quantity <= 0) { byId("trainingStatus").textContent = side === "buy" ? "当前资金不足以买入100股" : "当前没有可卖持仓"; return; }
+  if (selectedTradeSide !== side) {
+    byId("trainingStatus").textContent = `请先选择${side === "buy" ? "买入" : "卖出"}方向`;
+    return;
+  }
+  const quantity = Number(byId("quantityInput").value);
+  if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+    byId("trainingStatus").textContent = "请输入有效的正整数股票数量";
+    return;
+  }
   try {
     state = await requestJson(`/api/random-training-sessions/${encodeURIComponent(state.id)}/trade`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedVersion: state.version, side, quantity }) });
     sessionStorage.setItem("randomTrainingState", JSON.stringify(state));
+    render();
     byId("trainingStatus").textContent = side === "buy" ? "买入成交" : "卖出成交";
   } catch (error) { byId("trainingStatus").textContent = error.message; }
-  render();
 }
 
 async function startReview() {
@@ -380,13 +454,43 @@ async function startReview() {
   } catch (error) { byId("trainingStatus").textContent = error.message; }
 }
 
-async function finishOrStartNext() {
-  if (state.status !== "running") {
-    const previousStockCode = state.stockCode;
-    byId("finishBtn").disabled = true;
-    byId("finishBtn").textContent = "创建中...";
-    try {
-      state = await requestJson("/api/random-training-sessions", {
+function setFinishDialogOpen(open) {
+  if (finishActionPending) return;
+  byId("finishDialog").hidden = !open;
+  document.body.classList.toggle("dialog-open", open);
+  if (open) {
+    byId("finishRemaining").textContent = state.advancesRemaining;
+    byId("finishDialogStatus").textContent = "";
+    byId("continueTraining").focus();
+  } else {
+    byId("openFinishDialog").focus();
+  }
+}
+
+function setFinishActionPending(pending, label = "") {
+  finishActionPending = pending;
+  ["continueTraining", "startNextRound", "confirmExitTraining"].forEach((id) => { byId(id).disabled = pending; });
+  if (pending) byId("finishDialogStatus").textContent = label;
+}
+
+async function finishCurrentSession() {
+  if (state.status !== "running") return;
+  state = await requestJson(`/api/random-training-sessions/${encodeURIComponent(state.id)}/finish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expectedVersion: state.version }),
+  });
+  sessionStorage.setItem("randomTrainingState", JSON.stringify(state));
+  localStorage.setItem(TRAINING_CAPITAL_KEY, String(state.account.equityCents));
+}
+
+async function createNextRound() {
+  if (finishActionPending) return;
+  const previousStockCode = state.stockCode;
+  setFinishActionPending(true, "正在保存本局并创建下一局...");
+  try {
+    await finishCurrentSession();
+    state = await requestJson("/api/random-training-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -394,31 +498,33 @@ async function finishOrStartNext() {
           initialCapitalCents: state.account.equityCents,
           excludeStockCode: previousStockCode,
         }),
-      });
-      sessionStorage.setItem("randomTrainingState", JSON.stringify(state));
-      period = "daily";
-      Object.assign(visibleByPeriod, DEFAULT_VISIBLE);
-      render();
-    } catch (error) {
-      byId("trainingStatus").textContent = error.message;
-      byId("finishBtn").disabled = false;
-      byId("finishBtn").textContent = "下一局";
-    }
-    return;
-  }
-  if (!window.confirm("确认结束本局？当前持仓将按当前收盘价计入最终资产，不会自动卖出。")) return;
-  try {
-    state = await requestJson(`/api/random-training-sessions/${encodeURIComponent(state.id)}/finish`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ expectedVersion: state.version }),
     });
     sessionStorage.setItem("randomTrainingState", JSON.stringify(state));
+    period = "daily";
+    Object.assign(visibleByPeriod, DEFAULT_VISIBLE);
+    Object.keys(selectedIndexByPeriod).forEach((key) => { selectedIndexByPeriod[key] = null; });
+    setFinishActionPending(false);
+    setFinishDialogOpen(false);
     render();
   } catch (error) {
-    byId("trainingStatus").textContent = error.message;
+    setFinishActionPending(false);
+    byId("finishDialogStatus").textContent = error.message;
   }
 }
+
+async function confirmExitTraining() {
+  if (finishActionPending) return;
+  setFinishActionPending(true, "正在保存本局...");
+  try {
+    await finishCurrentSession();
+    location.href = "dashboard.html";
+  } catch (error) {
+    setFinishActionPending(false);
+    byId("finishDialogStatus").textContent = error.message;
+  }
+}
+
+function finishOrStartNext() { setFinishDialogOpen(true); }
 
 document.querySelectorAll(".chart-actions .ghost").forEach((button, index) => {
   if (index > 2) { button.hidden = true; return; }
@@ -438,13 +544,34 @@ const finishButton = document.querySelector(".control-buttons button:first-child
 finishButton.id = "finishBtn";
 finishButton.textContent = "结束本局";
 finishButton.onclick = finishOrStartNext;
-byId("positionSlider").oninput = syncQuantity;
-document.querySelectorAll(".fraction").forEach((button) => { button.onclick = () => { byId("positionSlider").value = Math.round(Number(button.dataset.fraction) * 100); syncQuantity(); }; });
-document.querySelectorAll(".mode-tabs button,.direction-row .direction").forEach((button) => { button.disabled = true; button.style.opacity = ".45"; });
-byId("quantityInput").disabled = true;
+byId("openFinishDialog").onclick = finishOrStartNext;
+byId("continueTraining").onclick = () => setFinishDialogOpen(false);
+byId("startNextRound").onclick = createNextRound;
+byId("confirmExitTraining").onclick = confirmExitTraining;
+byId("finishDialog").addEventListener("click", (event) => { if (event.target === byId("finishDialog")) setFinishDialogOpen(false); });
+byId("positionSlider").oninput = () => {
+  selectedAllocation = Number(byId("positionSlider").value) / 100;
+  document.querySelectorAll(".fraction").forEach((button) => button.classList.remove("active"));
+  syncQuantity();
+};
+document.querySelectorAll(".fraction").forEach((button) => {
+  button.onclick = () => {
+    selectedAllocation = Number(button.dataset.fraction);
+    byId("positionSlider").value = Math.round(selectedAllocation * 100);
+    document.querySelectorAll(".fraction").forEach((item) => item.classList.toggle("active", item === button));
+    syncQuantity();
+  };
+});
+document.querySelectorAll(".direction-row .direction").forEach((button) => { button.onclick = () => selectTradeSide(button.dataset.side); });
+document.querySelectorAll(".mode-tabs button").forEach((button) => { button.disabled = true; button.style.opacity = ".45"; });
+Object.assign(byId("quantityInput"), { disabled: false, type: "number", min: "1", step: "100", inputMode: "numeric" });
 byId("priceInput").readOnly = true;
 window.onresize = draw;
 document.addEventListener("keydown", (event) => {
+  if (!byId("finishDialog").hidden) {
+    if (event.key === "Escape") setFinishDialogOpen(false);
+    return;
+  }
   const target = event.target;
   if (!["ArrowUp", "ArrowDown"].includes(event.key) || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
   if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable) return;
@@ -457,12 +584,12 @@ installChartControls();
 window.addEventListener("indicator-settings-changed", draw);
 
 async function bootstrap() {
-  if (!state?.id) { location.replace("random.html"); return; }
+  if (!state?.id) { location.replace("dashboard.html"); return; }
   try {
     state = await requestJson(`/api/random-training-sessions/${encodeURIComponent(state.id)}`);
     sessionStorage.setItem("randomTrainingState", JSON.stringify(state));
     render();
-  } catch { sessionStorage.removeItem("randomTrainingState"); location.replace("random.html"); }
+  } catch { sessionStorage.removeItem("randomTrainingState"); location.replace("dashboard.html"); }
 }
 bootstrap();
 

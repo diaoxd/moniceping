@@ -1,5 +1,233 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>随机训练配置</title><link rel="stylesheet" href="modes.css"><style>
-body{background:#d9e1e8;display:grid;place-items:center;min-height:100vh;padding:20px}.modal{width:min(720px,100%);background:#f7f9fc;border:1px solid #d9e1ea;border-radius:8px;padding:28px;color:#19263a;box-shadow:0 24px 70px rgba(34,52,70,.18)}.modal h1{margin:0 0 8px;font-size:26px}.intro{margin:0 0 28px;color:#657287;line-height:1.7}.field{display:block;margin:22px 0}.field>span{display:block;margin-bottom:10px;font-weight:700}.choices{display:grid;grid-template-columns:1fr 1fr;gap:10px}.choice{height:46px;border:1px solid #cfd9e5;background:#fff;border-radius:6px;color:#33445b;font-size:15px;cursor:pointer}.choice.selected{border-color:#2876e8;background:#eaf2ff;color:#155fc8;font-weight:700}.field input{width:100%;height:46px;border:1px solid #cfd9e5;border-radius:6px;padding:0 13px;background:#fff;color:#19263a;font-size:15px}.fixed{display:flex;justify-content:space-between;gap:20px;padding:15px;border:1px solid #d9e1ea;background:#fff;border-radius:6px;color:#657287}.fixed b{color:#19263a}.status{min-height:22px;margin-top:15px;color:#cf334b}.actions{display:grid;grid-template-columns:1fr 2fr;gap:12px;margin-top:12px}.actions button{height:48px;border-radius:6px;font-size:15px;font-weight:700;cursor:pointer}.cancel{border:1px solid #cfd9e5;background:#fff;color:#536276}.start{border:1px solid #2876e8;background:#2876e8;color:#fff}.start:disabled{opacity:.55;cursor:wait}@media(max-width:520px){.modal{padding:22px 18px}.choices,.actions{grid-template-columns:1fr}.fixed{display:grid}}
-</style></head><body><main class="modal"><h1>随机训练</h1><p class="intro">系统从有效历史行情中随机选择股票和训练起点。进入训练后显示股票名称和代码，但隐藏真实日期。</p><div class="field"><span>模拟区间</span><div class="choices"><button class="choice selected" data-bars="150">150 根日线</button><button class="choice" data-bars="200">200 根日线</button></div></div><label class="field"><span>初始资金（元）</span><input id="capital" type="number" min="10000" max="10000000" step="1000" value="1000000"></label><label class="field"><span>随机种子（可选）</span><input id="seed" maxlength="80" placeholder="留空则每次随机"></label><div class="fixed"><span>行情周期 <b>日线 / 周线 / 月线</b></span><span>复权方式 <b>后复权</b></span></div><p id="status" class="status" role="status"></p><div class="actions"><button class="cancel" onclick="history.back()">取消</button><button id="start" class="start">开始训练</button></div></main><script>
-let simulationBars=150;document.querySelectorAll('[data-bars]').forEach(button=>button.onclick=()=>{document.querySelectorAll('[data-bars]').forEach(item=>item.classList.remove('selected'));button.classList.add('selected');simulationBars=Number(button.dataset.bars)});document.getElementById('start').onclick=async()=>{const start=document.getElementById('start');const status=document.getElementById('status');const capital=Number(document.getElementById('capital').value);const seed=document.getElementById('seed').value.trim();start.disabled=true;status.textContent='正在创建训练...';try{const response=await fetch('/api/random-training-sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({simulationBars,initialCapitalCents:Math.round(capital*100),...(seed?{seed}:{})})});const payload=await response.json();if(!response.ok)throw new Error(payload.error?.message||'创建训练失败');sessionStorage.setItem('randomTrainingState',JSON.stringify(payload));location.href='index.html'}catch(error){status.textContent=error.message;start.disabled=false}};
-</script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>随机训练配置</title>
+    <link rel="stylesheet" href="modes.css" />
+    <style>
+      body {
+        background: #d9e1e8;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        padding: 20px;
+      }
+      .modal {
+        width: min(720px, 100%);
+        background: #f7f9fc;
+        border: 1px solid #d9e1ea;
+        border-radius: 8px;
+        padding: 28px;
+        color: #19263a;
+        box-shadow: 0 24px 70px rgba(34, 52, 70, 0.18);
+      }
+      .modal h1 {
+        margin: 0 0 8px;
+        font-size: 26px;
+      }
+      .intro {
+        margin: 0 0 28px;
+        color: #657287;
+        line-height: 1.7;
+      }
+      .field {
+        display: block;
+        margin: 22px 0;
+      }
+      .field > span {
+        display: block;
+        margin-bottom: 10px;
+        font-weight: 700;
+      }
+      .choices {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      .choice {
+        height: 46px;
+        border: 1px solid #cfd9e5;
+        background: #fff;
+        border-radius: 6px;
+        color: #33445b;
+        font-size: 15px;
+        cursor: pointer;
+      }
+      .choice.selected {
+        border-color: #2876e8;
+        background: #eaf2ff;
+        color: #155fc8;
+        font-weight: 700;
+      }
+      .field input {
+        width: 100%;
+        height: 46px;
+        border: 1px solid #cfd9e5;
+        border-radius: 6px;
+        padding: 0 13px;
+        background: #fff;
+        color: #19263a;
+        font-size: 15px;
+      }
+      .fixed {
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 15px;
+        border: 1px solid #d9e1ea;
+        background: #fff;
+        border-radius: 6px;
+        color: #657287;
+      }
+      .fixed b {
+        color: #19263a;
+      }
+      .status {
+        min-height: 22px;
+        margin-top: 15px;
+        color: #cf334b;
+      }
+      .actions {
+        display: grid;
+        grid-template-columns: 1fr 2fr;
+        gap: 12px;
+        margin-top: 12px;
+      }
+      .actions button {
+        height: 48px;
+        border-radius: 6px;
+        font-size: 15px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .cancel {
+        border: 1px solid #cfd9e5;
+        background: #fff;
+        color: #536276;
+      }
+      .start {
+        border: 1px solid #2876e8;
+        background: #2876e8;
+        color: #fff;
+      }
+      .start:disabled {
+        opacity: 0.55;
+        cursor: wait;
+      }
+      @media (max-width: 520px) {
+        .modal {
+          padding: 22px 18px;
+        }
+        .choices,
+        .actions {
+          grid-template-columns: 1fr;
+        }
+        .fixed {
+          display: grid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="modal">
+      <h1>随机训练</h1>
+      <p class="intro">
+        系统从有效历史行情中随机选择股票和训练起点。进入训练后显示股票名称和代码，但隐藏真实日期。
+      </p>
+      <div class="field">
+        <span>模拟区间</span>
+        <div class="choices">
+          <button class="choice selected" data-bars="150">150 根日线</button
+          ><button class="choice" data-bars="200">200 根日线</button>
+        </div>
+      </div>
+      <label class="field"
+        ><span>初始资金（元）</span
+        ><input
+          id="capital"
+          type="number"
+          min="10000"
+          max="10000000"
+          step="1000"
+          value="1000000" /></label
+      ><label class="field"
+        ><span>随机种子（可选）</span
+        ><input id="seed" maxlength="80" placeholder="留空则每次随机"
+      /></label>
+      <div class="fixed">
+        <span>行情周期 <b>日线 / 周线 / 月线</b></span
+        ><span>复权方式 <b>后复权</b></span>
+      </div>
+      <p id="status" class="status" role="status"></p>
+      <div class="actions">
+        <button class="cancel" onclick="history.back()">取消</button
+        ><button id="start" class="start">开始训练</button>
+      </div>
+    </main>
+    <script>
+      let simulationBars = 150;
+      const capitalInput = document.getElementById("capital");
+      const capitalWasReset = localStorage.getItem("randomTrainingCapitalReset") === "true";
+      const savedCapitalCents = Number(
+        localStorage.getItem("randomTrainingCapitalCents"),
+      );
+      if (!capitalWasReset &&
+        Number.isSafeInteger(savedCapitalCents) &&
+        savedCapitalCents >= 1000000 &&
+        savedCapitalCents <= 1000000000
+      )
+        capitalInput.value = (savedCapitalCents / 100).toFixed(2);
+      else if (!capitalWasReset) {
+        fetch("/api/training-dashboard")
+          .then((response) => response.json())
+          .then((summary) => {
+            if (Number.isSafeInteger(summary.currentEquityCents)) capitalInput.value = (summary.currentEquityCents / 100).toFixed(2);
+          })
+          .catch(() => {});
+      }
+      document.querySelectorAll("[data-bars]").forEach(
+        (button) =>
+          (button.onclick = () => {
+            document
+              .querySelectorAll("[data-bars]")
+              .forEach((item) => item.classList.remove("selected"));
+            button.classList.add("selected");
+            simulationBars = Number(button.dataset.bars);
+          }),
+      );
+      document.getElementById("start").onclick = async () => {
+        const start = document.getElementById("start");
+        const status = document.getElementById("status");
+        const capital = Number(document.getElementById("capital").value);
+        const seed = document.getElementById("seed").value.trim();
+        start.disabled = true;
+        status.textContent = "正在创建训练...";
+        try {
+          const response = await fetch("/api/random-training-sessions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              simulationBars,
+              initialCapitalCents: Math.round(capital * 100),
+              ...(seed ? { seed } : {}),
+            }),
+          });
+          const payload = await response.json();
+          if (!response.ok)
+            throw new Error(payload.error?.message || "创建训练失败");
+          sessionStorage.setItem(
+            "randomTrainingState",
+            JSON.stringify(payload),
+          );
+          localStorage.setItem("randomTrainingCapitalCents", String(payload.initialCapitalCents));
+          localStorage.removeItem("randomTrainingCapitalReset");
+          location.href = "index.html";
+        } catch (error) {
+          status.textContent = error.message;
+          start.disabled = false;
+        }
+      };
+    </script>
+  </body>
+</html>
