@@ -20,6 +20,12 @@ export function validateMarketDatabaseSchema(database) {
   return true;
 }
 
+function mergeTurnoverRates(bars, stock, turnoverRepository) {
+  if (!turnoverRepository) return bars.map((bar) => ({ ...bar, turnoverRateMillionths: null }));
+  const byDate = turnoverRepository.load(stock.stockCode, stock.market);
+  return bars.map((bar) => ({ ...bar, turnoverRateMillionths: byDate.get(bar.tradeDate) ?? null }));
+}
+
 export function loadTrainingStocks(database, { simulationBars, minimumStartDate = "2021-01-01" } = {}) {
   if (![150, 200].includes(simulationBars)) {
     throw Object.assign(new Error("模拟区间只能是150或200根"), { code: "INVALID_SIMULATION_BARS" });
@@ -86,7 +92,7 @@ export function loadTrainingRanges(database, { simulationBars, minimumStartDate 
   `).all(minimumStartDate, HISTORY_CONTEXT_BARS, simulationBars, simulationBars);
 }
 
-export function loadTrainingStock(database, stockCode) {
+export function loadTrainingStock(database, stockCode, turnoverRepository = null) {
   const stock = database.prepare(`
     SELECT stock_code AS stockCode, stock_name AS stockName, market, board_type AS boardType
     FROM stocks WHERE stock_code = ? AND market IN ('SH', 'SZ', 'BJ')
@@ -99,5 +105,5 @@ export function loadTrainingStock(database, stockCode) {
       limit_up_price_cents AS limitUpPriceCents, limit_down_price_cents AS limitDownPriceCents
     FROM daily_bars WHERE stock_code = ? ORDER BY trade_date
   `).all(stockCode).map((bar) => ({ ...bar, isSuspended: Boolean(bar.isSuspended) }));
-  return { ...stock, bars };
+  return { ...stock, bars: mergeTurnoverRates(bars, stock, turnoverRepository) };
 }

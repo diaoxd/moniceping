@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { loadTrainingRanges, loadTrainingStocks, validateMarketDatabaseSchema } from "../../src/infrastructure/market-repository.mjs";
+import { loadTrainingRanges, loadTrainingStock, loadTrainingStocks, validateMarketDatabaseSchema } from "../../src/infrastructure/market-repository.mjs";
 import { selectRandomTrainingCandidate } from "../../src/domain/session/random-candidate.mjs";
 
 function createDatabase() {
@@ -57,6 +57,15 @@ test("market repository returns compact weighted ranges without loading bars", (
   assert.equal(ranges[0].firstStartIndex, 366);
   assert.equal(ranges[0].eligibleCount, 85);
   assert.equal("bars" in ranges[0], false);
+  database.close();
+});
+
+test("market repository joins optional daily turnover by stock and trade date", () => {
+  const database = createDatabase();
+  const turnoverRepository = { load: () => new Map([["2020-01-01", 52300]]) };
+  const stock = loadTrainingStock(database, "600000", turnoverRepository);
+  assert.equal(stock.bars[0].turnoverRateMillionths, 52300);
+  assert.equal(stock.bars[1].turnoverRateMillionths, null);
   database.close();
 });
 

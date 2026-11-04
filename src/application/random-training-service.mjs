@@ -3,7 +3,7 @@ import { selectRandomTrainingRange } from "../domain/session/random-candidate.mj
 import { createTrainingSession, getPublicTrainingState } from "../domain/session/training-session.mjs";
 import { loadTrainingRanges, loadTrainingStock } from "../infrastructure/market-repository.mjs";
 
-export function createRandomTrainingService({ marketDatabase, idFactory = randomUUID } = {}) {
+export function createRandomTrainingService({ marketDatabase, turnoverRepository = null, idFactory = randomUUID } = {}) {
   if (!marketDatabase) throw new Error("行情数据库不能为空");
   const rangesBySimulationBars = new Map();
   return {
@@ -17,7 +17,7 @@ export function createRandomTrainingService({ marketDatabase, idFactory = random
         ? ranges.filter((range) => range.stockCode !== String(excludeStockCode))
         : ranges;
       const selection = selectRandomTrainingRange({ ranges: eligibleRanges, simulationBars, seed });
-      const stock = loadTrainingStock(marketDatabase, selection.candidate.stockCode);
+      const stock = loadTrainingStock(marketDatabase, selection.candidate.stockCode, turnoverRepository);
       const session = createTrainingSession({
         id: idFactory(),
         stockCode: stock.stockCode,

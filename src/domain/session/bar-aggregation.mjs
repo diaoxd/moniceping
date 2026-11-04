@@ -31,6 +31,8 @@ function aggregate(bars, keyForBar) {
         closeCents: bar.closeCents,
         volume: bar.volume,
         amountCents: bar.amountCents,
+        turnoverRateMillionths: bar.turnoverRateMillionths ?? null,
+        turnoverDataComplete: bar.turnoverRateMillionths != null,
         sourceCount: 1,
       });
       continue;
@@ -40,6 +42,12 @@ function aggregate(bars, keyForBar) {
     current.closeCents = bar.closeCents;
     current.volume += bar.volume;
     current.amountCents += bar.amountCents;
+    if (current.turnoverDataComplete && bar.turnoverRateMillionths != null) {
+      current.turnoverRateMillionths += bar.turnoverRateMillionths;
+    } else {
+      current.turnoverDataComplete = false;
+      current.turnoverRateMillionths = null;
+    }
     current.sourceCount += 1;
   }
   return groups;

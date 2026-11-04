@@ -25,6 +25,7 @@ function makeBars(count = 450) {
         closeCents: openCents + 5,
         volume: 10_000 + index,
         amountCents: 1_000_000 + index,
+        turnoverRateMillionths: 10_000 + index,
       });
     }
     date.setUTCDate(date.getUTCDate() + 1);
@@ -53,6 +54,9 @@ test("creation exposes exactly 200 historical bars and hides every real date", (
   assert.equal(state.bars.daily.at(-1).index, 0);
   assert.equal(state.trainingStartBarIndex, 0);
   assert.equal(state.initialCapitalCents, 10_000_000);
+  assert.equal(state.bars.daily[0].turnoverRateMillionths, 10_000);
+  assert.ok(state.bars.weekly.at(-1).turnoverRateMillionths > 0);
+  assert.ok(state.bars.monthly.at(-1).turnoverRateMillionths > 0);
   assert.equal(state.bars.daily.filter((bar) => bar.isTrainingStart).length, 1);
   assert.equal(state.bars.weekly.filter((bar) => bar.isTrainingStart).length, 1);
   assert.equal(state.bars.monthly.filter((bar) => bar.isTrainingStart).length, 1);

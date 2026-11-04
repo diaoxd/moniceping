@@ -63,6 +63,7 @@ function publicBar(bar, relativeIndex, revealDates) {
     closeCents: bar.closeCents,
     volume: bar.volume,
     amountCents: bar.amountCents,
+    turnoverRateMillionths: bar.turnoverRateMillionths ?? null,
   });
 }
 

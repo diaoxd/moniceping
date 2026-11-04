@@ -18,6 +18,7 @@ import { createConditionalOrder, isConditionalOrderTriggered, requiredStopLossCo
 import { calculateTradeFees } from "./src/domain/trading/fees.mjs";
 import { createReviewRepository } from "./src/infrastructure/review-repository.mjs";
 import { createPatternRepository } from "./src/infrastructure/pattern-repository.mjs";
+import { createExternalTurnoverRepository } from "./src/infrastructure/external-turnover-repository.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const dataDirectory = join(root, "data");
@@ -29,6 +30,13 @@ const conditionalOrderRepository = createConditionalOrderRepository(appDatabase)
 const reviewRepository = createReviewRepository(appDatabase);
 const patternRepository = createPatternRepository(appDatabase);
 const marketDatabasePath = process.env.MARKET_DATABASE || join(dataDirectory, "market.db");
+const turnoverDatabasePath = process.env.TURNOVER_DATABASE || "/Volumes/RPS市场分析系统/bt_framework/data/stock_daily.db";
+let turnoverRepository;
+try {
+  turnoverRepository = createExternalTurnoverRepository(turnoverDatabasePath);
+} catch (error) {
+  console.warn(`换手率数据库不可用：${error.message}`);
+}
 let marketDatabase;
 try {
   marketDatabase = new DatabaseSync(marketDatabasePath);
@@ -39,7 +47,7 @@ try {
   marketDatabase = undefined;
   console.warn(`行情数据库不可用：${error.message}`);
 }
-const randomTraining = marketDatabase ? createRandomTrainingService({ marketDatabase }) : null;
+const randomTraining = marketDatabase ? createRandomTrainingService({ marketDatabase, turnoverRepository }) : null;
 const trainingSessions = new Map();
 const insights = createInsightRepository(database);
 const matching = createMatchingRepository(database);
@@ -51,7 +59,7 @@ function findTrainingSession(sessionId) {
   if (cached) return cached;
   const metadata = appDatabase.prepare("SELECT stock_code AS stockCode FROM training_sessions WHERE id = ?").get(sessionId);
   if (!metadata || !marketDatabase) return null;
-  const stock = loadTrainingStock(marketDatabase, metadata.stockCode);
+  const stock = loadTrainingStock(marketDatabase, metadata.stockCode, turnoverRepository);
   if (!stock) return null;
   const restored = sessionRepository.load(sessionId, stock.bars);
   if (restored) trainingSessions.set(sessionId, restored);
@@ -98,7 +106,7 @@ function insightRoute(pathname) {
 
 async function handleApi(request, response, url) {
   if (url.pathname === "/api/health" && request.method === "GET") {
-    sendJson(response, 200, { status: "ok", marketDatabase: Boolean(randomTraining) });
+    sendJson(response, 200, { status: "ok", marketDatabase: Boolean(randomTraining), turnoverDatabase: Boolean(turnoverRepository) });
     return true;
   }
 
