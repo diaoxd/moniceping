@@ -318,7 +318,9 @@ body {
 }
 .mode-tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
+  margin: 10px 0 2px;
+  flex: 0 0 auto;
   background: #1f2731;
   border: 1px solid #303b48;
   border-radius: 7px;
@@ -648,6 +650,9 @@ body {
 body.dialog-open {
   overflow: hidden;
 }
+.conditional-card{width:min(520px,100%)}.conditional-setting{display:flex;align-items:center;justify-content:space-between;margin:18px 0;padding:12px 0;border-top:1px solid #303b48;border-bottom:1px solid #303b48;color:#c8d1db;font-size:13px}.switch input{position:absolute;opacity:0}.switch span{display:block;width:38px;height:21px;border-radius:12px;background:#3a4654;position:relative;cursor:pointer}.switch span:after{content:"";position:absolute;width:17px;height:17px;left:2px;top:2px;border-radius:50%;background:#fff;transition:.15s}.switch input:checked+span{background:#4389ff}.switch input:checked+span:after{transform:translateX(17px)}.conditional-field{margin:15px 0}.conditional-field>span{display:block;color:#8e9ba9;font-size:12px;margin-bottom:8px}.conditional-options{display:grid;grid-template-columns:1fr 1fr;gap:8px}.conditional-options button{min-height:39px;border:1px solid #3a4654;border-radius:6px;background:#202a35;color:#aab5c0}.conditional-options button.active{border-color:#4389ff;background:#254f9a;color:#fff}.conditional-options button.buy.active{border-color:#f0445f;background:#3b1f29}.conditional-inputs{display:grid;grid-template-columns:1fr 1fr;gap:12px}.conditional-inputs label{color:#8e9ba9;font-size:12px}.conditional-inputs input{width:100%;margin-top:7px;padding:10px;border:1px solid #3a4654;border-radius:6px;background:#10161e;color:#fff;font:13px monospace}
+.conditional-panel,#marketOrderForm{flex:0 0 auto}.conditional-panel{padding:0 2px 12px}.conditional-panel[hidden],#marketOrderForm[hidden]{display:none}.conditional-status{min-height:18px;margin:9px 0;color:#9ba8b6;font-size:12px}.conditional-actions{display:grid;grid-template-columns:1fr 1.35fr;gap:8px}.conditional-actions button{min-height:38px;border:1px solid #3a4654;border-radius:5px;background:#202a35;color:#c6d0da}.conditional-actions .primary{background:#285cbd;border-color:#3673dc;color:#fff}
+.risk-dialog-card{width:min(430px,100%)}.risk-dialog-actions{grid-template-columns:1fr 1.35fr}.risk-dialog-card h2{color:#f4d546}
 @media (max-width: 900px) {
   .workspace {
     grid-template-columns: 1fr;

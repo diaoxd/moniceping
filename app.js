@@ -4,6 +4,8 @@ let indicatorMode = "volume";
 let finishActionPending = false;
 let selectedTradeSide = "buy";
 let selectedAllocation = 0.2;
+let selectedConditionSide = "buy";
+let selectedTriggerDirection = "cross_up";
 
 const pc = document.getElementById("priceChart");
 const vc = document.getElementById("volumeChart");
@@ -19,7 +21,11 @@ const TRAINING_CAPITAL_KEY = "randomTrainingCapitalCents";
 async function requestJson(url, options) {
   const response = await fetch(url, options);
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error?.message || "服务器请求失败");
+  if (!response.ok) {
+    const error = new Error(payload.error?.message || "服务器请求失败");
+    error.code = payload.error?.code || "REQUEST_FAILED";
+    throw error;
+  }
   return payload;
 }
 
@@ -177,6 +183,57 @@ function drawTrainingStart(context, shown, x, top, bottom) {
   return position;
 }
 
+function aggregateIndexForDailyOffset(periodBars, dailyOffset) {
+  if (period === "daily") return dailyOffset;
+  let sourceOffset = 0;
+  for (let index = 0; index < periodBars.length; index += 1) {
+    sourceOffset += periodBars[index].sourceCount;
+    if (dailyOffset < sourceOffset) return index;
+  }
+  return -1;
+}
+
+function drawTradeMarkers(context, bars, viewport, x, y, top, bottom) {
+  const dailyBars = state.bars.daily;
+  const markers = state.fills.map((fill) => {
+    const dailyOffset = dailyBars.findIndex((bar) => bar.index === fill.step);
+    const absoluteIndex = dailyOffset < 0 ? -1 : aggregateIndexForDailyOffset(bars, dailyOffset);
+    return { fill, absoluteIndex, visibleIndex: absoluteIndex - viewport.offset };
+  }).filter((marker) => marker.visibleIndex >= 0 && marker.visibleIndex < viewport.shown.length);
+  const groupSizes = new Map();
+  markers.forEach((marker) => {
+    const key = `${marker.absoluteIndex}:${marker.fill.side}`;
+    groupSizes.set(key, (groupSizes.get(key) || 0) + 1);
+  });
+  const groupOffsets = new Map();
+  const rendered = markers.map((marker) => {
+    const key = `${marker.absoluteIndex}:${marker.fill.side}`;
+    const ordinal = groupOffsets.get(key) || 0;
+    groupOffsets.set(key, ordinal + 1);
+    const count = groupSizes.get(key);
+    const bar = bars[marker.absoluteIndex];
+    const markerX = x(marker.visibleIndex) + (ordinal - (count - 1) / 2) * 17;
+    const markerY = marker.fill.side === "buy"
+      ? Math.min(bottom - 11, y(bar.lowCents) + 17)
+      : Math.max(top + 11, y(bar.highCents) - 17);
+    const color = marker.fill.side === "buy" ? "#f0445f" : "#11c98b";
+    context.fillStyle = color;
+    context.strokeStyle = "#0d1117";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.arc(markerX, markerY, 10, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+    context.fillStyle = "#fff";
+    context.font = "700 11px sans-serif";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(marker.fill.side === "buy" ? "B" : "S", markerX, markerY + 0.5);
+    return { fillId: marker.fill.id, side: marker.fill.side, barIndex: marker.absoluteIndex, visibleIndex: marker.visibleIndex, x: markerX, y: markerY };
+  });
+  window.trainingTradeMarkers = rendered;
+}
+
 function drawIndicatorPanel(bars, viewport) {
   const [context, width, height] = resize(vc);
   const left = 10;
@@ -289,6 +346,7 @@ function draw() {
     plotLine(context, calculated.slice(viewport.offset), colors[index], x, y);
   });
   const selectedVisibleIndex = selectedAbsoluteIndex === null ? -1 : selectedAbsoluteIndex - viewport.offset;
+  let selectedStopLine = null;
   if (selectedVisibleIndex >= 0 && selectedVisibleIndex < viewport.shown.length) {
     const selected = viewport.shown[selectedVisibleIndex];
     const halfWidth = Math.max(5, step * 0.42);
@@ -297,12 +355,38 @@ function draw() {
     context.strokeStyle = "#00b7ff";
     context.lineWidth = 2;
     context.strokeRect(x(selectedVisibleIndex) - halfWidth, top, halfWidth * 2, Math.max(12, bottom - top));
+    if (selectedAbsoluteIndex < bars.length - 1) {
+      const startX = x(selectedVisibleIndex);
+      const endX = x(viewport.shown.length - 1);
+      const stopY = y(selected.lowCents);
+      context.strokeStyle = "rgba(155, 166, 178, .82)";
+      context.lineWidth = 1.2;
+      context.setLineDash([6, 5]);
+      context.beginPath();
+      context.moveTo(startX, stopY);
+      context.lineTo(endX, stopY);
+      context.stroke();
+      context.setLineDash([]);
+      const label = `最低 ${money(selected.lowCents)}`;
+      context.font = "600 11px 'DM Mono', monospace";
+      context.textAlign = "left";
+      context.textBaseline = "top";
+      const labelX = startX + 5;
+      const labelY = stopY + 5;
+      const labelWidth = context.measureText(label).width;
+      context.fillStyle = "rgba(13, 17, 23, .88)";
+      context.fillRect(labelX - 3, labelY - 2, labelWidth + 6, 16);
+      context.fillStyle = "#a7b1bc";
+      context.fillText(label, labelX, labelY);
+      selectedStopLine = { startX, endX, y: stopY, priceCents: selected.lowCents, label, labelX, labelY };
+    }
   }
   const trainingStartX = drawTrainingStart(context, viewport.shown, x, padding.top, height - padding.bottom);
   drawSwing(context, references.high, "前高", viewport.offset, x, y, plotRight, -1);
   drawSwing(context, references.low, "近15低", viewport.offset, x, y, plotRight, 1);
+  drawTradeMarkers(context, bars, viewport, x, y, padding.top, height - padding.bottom);
   drawPriceAxis(context, width, padding.right, levels, y);
-  window.trainingChartLayout = { period, firstX: x(0), step, offset: viewport.offset, shownCount: viewport.shown.length, latestX: x(viewport.shown.length - 1), currentY: y(latest.closeCents), plotRight, trainingStartX, visibleCount: viewport.visibleCount, blankSlots: viewport.blankSlots };
+  window.trainingChartLayout = { period, firstX: x(0), step, offset: viewport.offset, shownCount: viewport.shown.length, latestX: x(viewport.shown.length - 1), currentY: y(latest.closeCents), plotRight, trainingStartX, selectedStopLine, visibleCount: viewport.visibleCount, blankSlots: viewport.blankSlots };
   window.trainingSelectedBar = selectedAbsoluteIndex === null ? null : { period, index: selectedAbsoluteIndex };
   ["currentPrice", "priceTag"].forEach((id) => { byId(id).textContent = money(latest.closeCents); });
   renderLatestPriceChange(bars);
@@ -425,8 +509,23 @@ async function act(action) {
     state = await requestJson(`/api/random-training-sessions/${encodeURIComponent(state.id)}/${action}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedVersion: state.version }) });
     sessionStorage.setItem("randomTrainingState", JSON.stringify(state));
     selectedIndexByPeriod[period] = null;
-  } catch (error) { byId("trainingStatus").textContent = error.message; }
+  } catch (error) {
+    byId("trainingStatus").textContent = error.message;
+    if (error.code === "STOP_LOSS_REQUIRED") showStopLossRequired(error.message);
+  }
   render();
+}
+
+function showStopLossRequired(message) {
+  byId("stopLossRequiredMessage").textContent = message || "当前持仓尚未设置足额止损保护，不能推进K线。";
+  byId("stopLossRequiredDialog").hidden = false;
+  document.body.classList.add("dialog-open");
+  byId("openStopLossOrder").focus();
+}
+
+function closeStopLossRequired() {
+  byId("stopLossRequiredDialog").hidden = true;
+  document.body.classList.toggle("dialog-open", !byId("finishDialog").hidden);
 }
 
 async function trade(side) {
@@ -490,16 +589,19 @@ async function createNextRound() {
   setFinishActionPending(true, "正在保存本局并创建下一局...");
   try {
     await finishCurrentSession();
+    const dashboard = await requestJson("/api/training-dashboard");
+    const nextCapitalCents = dashboard.currentEquityCents ?? state.account.equityCents;
     state = await requestJson("/api/random-training-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           simulationBars: state.simulationBars,
-          initialCapitalCents: state.account.equityCents,
+          initialCapitalCents: nextCapitalCents,
           excludeStockCode: previousStockCode,
         }),
     });
     sessionStorage.setItem("randomTrainingState", JSON.stringify(state));
+    localStorage.setItem(TRAINING_CAPITAL_KEY, String(nextCapitalCents));
     period = "daily";
     Object.assign(visibleByPeriod, DEFAULT_VISIBLE);
     Object.keys(selectedIndexByPeriod).forEach((key) => { selectedIndexByPeriod[key] = null; });
@@ -526,6 +628,58 @@ async function confirmExitTraining() {
 
 function finishOrStartNext() { setFinishDialogOpen(true); }
 
+function setConditionalDialogOpen(open) {
+  byId("conditionalOrderForm").hidden = !open;
+  byId("marketOrderForm").hidden = open;
+  document.querySelectorAll(".mode-tabs button").forEach((button) => button.classList.toggle("active", open ? button.dataset.orderMode === "conditional" : button.dataset.orderMode === "market"));
+  if (!open) {
+    byId("conditionalStatus").textContent = "";
+    return;
+  }
+  document.querySelectorAll("[data-condition-side]").forEach((button) => button.classList.toggle("active", button.dataset.conditionSide === selectedConditionSide));
+  document.querySelectorAll("[data-trigger-direction]").forEach((button) => button.classList.toggle("active", button.dataset.triggerDirection === selectedTriggerDirection));
+  const latest = state.bars.daily.at(-1);
+  if (!byId("conditionPrice").value) byId("conditionPrice").value = (latest.closeCents / 100).toFixed(2);
+  if (!byId("conditionQuantity").value) byId("conditionQuantity").value = selectedConditionSide === "buy" ? state.maximumBuyQuantity : state.position.quantity;
+  byId("conditionalStatus").textContent = "正在读取风控设置...";
+  requestJson(`/api/random-training-sessions/${encodeURIComponent(state.id)}/risk-settings`)
+    .then((settings) => { byId("requireStopLoss").checked = settings.requireStopLoss; byId("conditionalStatus").textContent = ""; })
+    .catch((error) => { byId("conditionalStatus").textContent = error.message; });
+}
+
+async function updateRiskSetting() {
+  try {
+    const settings = await requestJson(`/api/random-training-sessions/${encodeURIComponent(state.id)}/risk-settings`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requireStopLoss: byId("requireStopLoss").checked }),
+    });
+    byId("conditionalStatus").textContent = settings.requireStopLoss ? "强制止损已开启" : "强制止损已关闭";
+  } catch (error) {
+    byId("requireStopLoss").checked = !byId("requireStopLoss").checked;
+    byId("conditionalStatus").textContent = error.message;
+  }
+}
+
+async function createCondition() {
+  const price = Number(byId("conditionPrice").value);
+  const quantity = Number(byId("conditionQuantity").value);
+  if (!Number.isFinite(price) || price <= 0 || !Number.isSafeInteger(quantity) || quantity <= 0) {
+    byId("conditionalStatus").textContent = "请输入有效的监控价格和股票数量";
+    return;
+  }
+  byId("createCondition").disabled = true;
+  try {
+    await requestJson(`/api/random-training-sessions/${encodeURIComponent(state.id)}/conditional-orders`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ side: selectedConditionSide, triggerDirection: selectedTriggerDirection, triggerPriceCents: Math.round(price * 100), quantity }),
+    });
+    byId("trainingStatus").textContent = "条件单创建成功，将从下一根K线开始监控";
+    byId("conditionalStatus").textContent = "条件单创建成功，可在“当前挂单”中查看";
+    window.dispatchEvent(new CustomEvent("conditional-orders-changed"));
+  } catch (error) { byId("conditionalStatus").textContent = error.message; }
+  finally { byId("createCondition").disabled = false; }
+}
+
 document.querySelectorAll(".chart-actions .ghost").forEach((button, index) => {
   if (index > 2) { button.hidden = true; return; }
   button.onclick = () => { period = PERIODS[index]; document.querySelectorAll(".chart-actions .ghost").forEach((item) => item.classList.remove("active")); button.classList.add("active"); render(); };
@@ -549,6 +703,16 @@ byId("continueTraining").onclick = () => setFinishDialogOpen(false);
 byId("startNextRound").onclick = createNextRound;
 byId("confirmExitTraining").onclick = confirmExitTraining;
 byId("finishDialog").addEventListener("click", (event) => { if (event.target === byId("finishDialog")) setFinishDialogOpen(false); });
+byId("closeStopLossRequired").onclick = closeStopLossRequired;
+byId("openStopLossOrder").onclick = () => {
+  closeStopLossRequired();
+  selectedConditionSide = "sell";
+  selectedTriggerDirection = "cross_down";
+  byId("conditionQuantity").value = state.position.quantity;
+  byId("conditionPrice").value = "";
+  setConditionalDialogOpen(true);
+};
+byId("stopLossRequiredDialog").addEventListener("click", (event) => { if (event.target === byId("stopLossRequiredDialog")) closeStopLossRequired(); });
 byId("positionSlider").oninput = () => {
   selectedAllocation = Number(byId("positionSlider").value) / 100;
   document.querySelectorAll(".fraction").forEach((button) => button.classList.remove("active"));
@@ -563,11 +727,32 @@ document.querySelectorAll(".fraction").forEach((button) => {
   };
 });
 document.querySelectorAll(".direction-row .direction").forEach((button) => { button.onclick = () => selectTradeSide(button.dataset.side); });
-document.querySelectorAll(".mode-tabs button").forEach((button) => { button.disabled = true; button.style.opacity = ".45"; });
+document.querySelectorAll(".mode-tabs button").forEach((button) => {
+  button.onclick = () => {
+    setConditionalDialogOpen(button.dataset.orderMode === "conditional");
+  };
+});
+document.querySelectorAll("[data-condition-side]").forEach((button) => {
+  button.onclick = () => {
+    selectedConditionSide = button.dataset.conditionSide;
+    document.querySelectorAll("[data-condition-side]").forEach((item) => item.classList.toggle("active", item === button));
+    byId("conditionQuantity").value = selectedConditionSide === "buy" ? state.maximumBuyQuantity : state.position.quantity;
+  };
+});
+document.querySelectorAll("[data-trigger-direction]").forEach((button) => {
+  button.onclick = () => { selectedTriggerDirection = button.dataset.triggerDirection; document.querySelectorAll("[data-trigger-direction]").forEach((item) => item.classList.toggle("active", item === button)); };
+});
+byId("requireStopLoss").onchange = updateRiskSetting;
+byId("createCondition").onclick = createCondition;
+byId("cancelCondition").onclick = () => setConditionalDialogOpen(false);
 Object.assign(byId("quantityInput"), { disabled: false, type: "number", min: "1", step: "100", inputMode: "numeric" });
 byId("priceInput").readOnly = true;
 window.onresize = draw;
 document.addEventListener("keydown", (event) => {
+  if (!byId("stopLossRequiredDialog").hidden) {
+    if (event.key === "Escape") closeStopLossRequired();
+    return;
+  }
   if (!byId("finishDialog").hidden) {
     if (event.key === "Escape") setFinishDialogOpen(false);
     return;

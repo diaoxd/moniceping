@@ -13,6 +13,9 @@ import { advanceTrainingSession, executeTrainingMarketOrder, finishTrainingSessi
 import { openAppDatabase } from "./src/infrastructure/app-database.mjs";
 import { loadTrainingStock, validateMarketDatabaseSchema } from "./src/infrastructure/market-repository.mjs";
 import { createTrainingSessionRepository } from "./src/infrastructure/training-session-repository.mjs";
+import { createConditionalOrderRepository } from "./src/infrastructure/conditional-order-repository.mjs";
+import { createConditionalOrder, isConditionalOrderTriggered, requiredStopLossCoverage } from "./src/domain/trading/conditional-order.mjs";
+import { calculateTradeFees } from "./src/domain/trading/fees.mjs";
 import { createReviewRepository } from "./src/infrastructure/review-repository.mjs";
 import { createPatternRepository } from "./src/infrastructure/pattern-repository.mjs";
 
@@ -22,6 +25,7 @@ mkdirSync(dataDirectory, { recursive: true });
 const database = openDatabase(join(dataDirectory, "trading-trainer.sqlite"));
 const appDatabase = openAppDatabase(process.env.APP_DATABASE || join(dataDirectory, "app.db"));
 const sessionRepository = createTrainingSessionRepository(appDatabase);
+const conditionalOrderRepository = createConditionalOrderRepository(appDatabase);
 const reviewRepository = createReviewRepository(appDatabase);
 const patternRepository = createPatternRepository(appDatabase);
 const marketDatabasePath = process.env.MARKET_DATABASE || join(dataDirectory, "market.db");
@@ -257,6 +261,56 @@ async function handleApi(request, response, url) {
     return true;
   }
 
+  const conditionalRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)\/conditional-orders(?:\/([^/]+))?$/);
+  if (conditionalRoute) {
+    const sessionId = decodeURIComponent(conditionalRoute[1]);
+    const orderId = conditionalRoute[2] ? decodeURIComponent(conditionalRoute[2]) : null;
+    const session = findTrainingSession(sessionId);
+    if (!session) { sendJson(response,404,{error:{code:"TRAINING_SESSION_NOT_FOUND",message:"随机训练会话不存在"}}); return true; }
+    try {
+      if (request.method === "GET" && !orderId) { sendJson(response,200,{items:conditionalOrderRepository.list(sessionId)}); return true; }
+      if (request.method === "POST" && !orderId) {
+        if (session.status !== "running") throw Object.assign(new Error("训练已结束，不能创建条件单"),{code:"SESSION_NOT_RUNNING"});
+        const body = await readJson(request);
+        const order = createConditionalOrder({id:randomUUID(),sessionId,side:body.side,triggerDirection:body.triggerDirection,
+          triggerPriceCents:Number(body.triggerPriceCents),quantity:Number(body.quantity),createdStep:session.advancesCompleted});
+        const pending = conditionalOrderRepository.listPending(sessionId);
+        if (order.side === "sell") {
+          const reservedQuantity = pending.filter((item) => item.side === "sell").reduce((sum,item)=>sum+item.quantity,0);
+          const availableQuantity = Math.max(0,session.position.quantity-reservedQuantity);
+          if (order.quantity > availableQuantity) throw Object.assign(new Error(`条件卖出可用持仓不足，扣除其他卖出挂单后可用${availableQuantity}股`),{code:"INSUFFICIENT_POSITION"});
+        } else {
+          const reservedCashCents = pending.filter((item) => item.side === "buy").reduce((sum,item)=>{
+            const gross=item.triggerPriceCents*item.quantity;
+            if (!Number.isSafeInteger(gross)) throw Object.assign(new Error("条件买入金额超出安全范围"),{code:"MONEY_OVERFLOW"});
+            return sum+gross+calculateTradeFees({side:"buy",grossAmountCents:gross}).totalFeesCents;
+          },0);
+          const grossAmountCents=order.triggerPriceCents*order.quantity;
+          if (!Number.isSafeInteger(grossAmountCents)) throw Object.assign(new Error("条件买入金额超出安全范围"),{code:"MONEY_OVERFLOW"});
+          const requiredCashCents=grossAmountCents+calculateTradeFees({side:"buy",grossAmountCents}).totalFeesCents;
+          const availableCashCents=Math.max(0,session.account.cashCents-reservedCashCents);
+          if (requiredCashCents > availableCashCents) throw Object.assign(new Error(`条件买入可用资金不足，扣除其他买入挂单后可用${(availableCashCents/100).toFixed(2)}元`),{code:"INSUFFICIENT_CASH"});
+        }
+        conditionalOrderRepository.create(order); sendJson(response,201,order); return true;
+      }
+      if (request.method === "DELETE" && orderId) {
+        if (!conditionalOrderRepository.cancel(sessionId,orderId)) throw Object.assign(new Error("挂单不存在或不能撤销"),{code:"CONDITIONAL_ORDER_NOT_PENDING"});
+        sendJson(response,200,{id:orderId,status:"cancelled"}); return true;
+      }
+      sendJson(response,405,{error:{code:"METHOD_NOT_ALLOWED",message:"不支持该请求方法"}});
+    } catch (error) { sendJson(response,422,{error:{code:error.code||"CONDITIONAL_ORDER_FAILED",message:error.message}}); }
+    return true;
+  }
+
+  const riskSettingsRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)\/risk-settings$/);
+  if (riskSettingsRoute) {
+    const sessionId = decodeURIComponent(riskSettingsRoute[1]);
+    if (!findTrainingSession(sessionId)) { sendJson(response,404,{error:{code:"TRAINING_SESSION_NOT_FOUND",message:"随机训练会话不存在"}}); return true; }
+    if (request.method === "GET") { sendJson(response,200,conditionalOrderRepository.getRiskSettings(sessionId)); return true; }
+    if (request.method === "PUT") { const body=await readJson(request); if(typeof body.requireStopLoss!=="boolean"){sendJson(response,422,{error:{code:"INVALID_RISK_SETTINGS",message:"止损开关必须是布尔值"}});return true;} sendJson(response,200,conditionalOrderRepository.setRiskSettings(sessionId,body.requireStopLoss));return true; }
+    sendJson(response,405,{error:{code:"METHOD_NOT_ALLOWED",message:"不支持该请求方法"}}); return true;
+  }
+
   const trainingRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)(?:\/(advance|rollback|finish|trade))?$/);
   const reportRoute = url.pathname.match(/^\/api\/random-training-sessions\/([^/]+)\/report$/);
   if (reportRoute && request.method === "GET") {
@@ -294,13 +348,34 @@ async function handleApi(request, response, url) {
         const body = await readJson(request);
         const expectedVersion = Number(body.expectedVersion);
         let next;
-        if (action === "advance") next = advanceTrainingSession(session, expectedVersion);
+        const conditionalUpdates = [];
+        if (action === "advance") {
+          const pending = conditionalOrderRepository.listPending(sessionId);
+          const risk = conditionalOrderRepository.getRiskSettings(sessionId);
+          const coverage = requiredStopLossCoverage(session.position.quantity,pending);
+          if (risk.requireStopLoss && coverage.missing > 0) throw Object.assign(new Error(`持仓尚缺${coverage.missing}股止损保护，请先创建下穿卖出条件单`),{code:"STOP_LOSS_REQUIRED"});
+          const previousBar = session.bars[session.visibleIndex];
+          next = advanceTrainingSession(session, expectedVersion);
+          const currentBar = next.bars[next.visibleIndex];
+          for (const order of pending) {
+            if (!isConditionalOrderTriggered(order,previousBar,currentBar,next.advancesCompleted)) continue;
+            const fillId=randomUUID();
+            try {
+              next=executeTrainingMarketOrder(next,next.version,{id:randomUUID(),fillId,side:order.side,quantity:order.quantity,allowFinished:true});
+              conditionalUpdates.push([order.id,{status:"filled",triggeredStep:next.advancesCompleted,fillId}]);
+            } catch (error) {
+              conditionalUpdates.push([order.id,{status:"rejected",triggeredStep:next.advancesCompleted,rejectionCode:error.code||"TRADE_REJECTED"}]);
+            }
+          }
+        }
         else if (action === "rollback") next = rollbackTrainingSession(session, expectedVersion);
         else if (action === "finish") next = finishTrainingSession(session, expectedVersion);
         else next = executeTrainingMarketOrder(session, expectedVersion, {
           id: randomUUID(), fillId: randomUUID(), side: body.side, quantity: Number(body.quantity),
         });
         sessionRepository.save(next, expectedVersion);
+        conditionalUpdates.forEach(([id,result])=>conditionalOrderRepository.complete(id,result));
+        if (action === "finish") conditionalOrderRepository.cancelAll(sessionId);
         trainingSessions.set(sessionId, next);
         sendJson(response, 200, getPublicTrainingState(next));
         return true;

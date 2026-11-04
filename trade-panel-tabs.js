@@ -12,9 +12,27 @@
     if (!data.position.quantity) { empty.hidden = false; history.hidden = false; view.hidden = true; return; }
     show(`<div class="tab-row"><span>持仓数量</span><strong>${data.position.quantity.toLocaleString()} 股</strong></div><div class="tab-row"><span>可卖数量</span><strong>${data.position.availableQuantity.toLocaleString()} 股</strong></div><div class="tab-row"><span>持仓成本</span><strong>${money(data.position.totalCostCents)}</strong></div>`);
   }
-  function orders(data) {
-    const pending = data.orders.filter((order) => order.status !== "filled");
-    show(pending.length ? pending.map((order) => `<div class="tab-row"><span>${order.side === "buy" ? "买入" : "卖出"}</span><strong>${order.quantity} 股</strong></div>`).join("") : "<div class='tab-empty'>当前没有挂单</div>");
+  const statusText = { pending: "监控中", filled: "已成交", cancelled: "已撤销", rejected: "触发失败" };
+  async function orders(data) {
+    show("<div class='tab-empty'>加载挂单...</div>");
+    try {
+      const response = await fetch(`/api/random-training-sessions/${encodeURIComponent(data.id)}/conditional-orders`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error?.message || "挂单加载失败");
+      const items = payload.items;
+      show(items.length ? items.slice().reverse().map((order) => `<div class="tab-row conditional-order-row"><span>${order.side === "buy" ? "买入" : "卖出"} · ${order.triggerDirection === "cross_up" ? "上穿" : "下穿"}<small>${money(order.triggerPriceCents)} · ${order.quantity.toLocaleString()} 股 · ${statusText[order.status] || order.status}</small></span>${order.status === "pending" ? `<button class="cancel-order" data-order-id="${order.id}">撤销</button>` : ""}</div>`).join("") : "<div class='tab-empty'>当前没有挂单</div>");
+      view.querySelectorAll(".cancel-order").forEach((button) => {
+        button.onclick = async () => {
+          button.disabled = true;
+          try {
+            const result = await fetch(`/api/random-training-sessions/${encodeURIComponent(data.id)}/conditional-orders/${encodeURIComponent(button.dataset.orderId)}`, { method: "DELETE" });
+            const body = await result.json(); if (!result.ok) throw new Error(body.error?.message || "撤单失败");
+            await orders(state());
+            window.dispatchEvent(new CustomEvent("conditional-orders-changed"));
+          } catch (error) { button.disabled = false; button.textContent = error.message; }
+        };
+      });
+    } catch (error) { show(`<div class='tab-empty'>${error.message}</div>`); }
   }
   function details(data) {
     show(data.fills.length ? data.fills.slice().reverse().map((fill) => `<div class="tab-row"><span class="${fill.side}">${fill.side === "buy" ? "买入" : "卖出"} ${fill.quantity.toLocaleString()} 股</span><strong>${money(fill.fillPriceCents)}<small>费用 ${money(fill.totalFeesCents)}</small></strong></div>`).join("") : "<div class='tab-empty'>暂无成交明细</div>");
@@ -41,4 +59,5 @@
     if (index === 0) position(data); else if (index === 1) orders(data); else if (index === 2) details(data); else curve(data);
   }
   tabs.forEach((tab, index) => { tab.onclick = () => activate(index); });
+  window.addEventListener("conditional-orders-changed", () => { if (tabs[1].classList.contains("active")) activate(1); });
 })();

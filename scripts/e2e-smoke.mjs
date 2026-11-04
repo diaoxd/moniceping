@@ -90,6 +90,31 @@ try {
   assert.equal(state.position.quantity, 100);
   assert.equal(state.position.availableQuantity, 0);
 
+  const blockedAdvance = await json(`/api/random-training-sessions/${state.id}/advance`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expectedVersion: state.version }),
+  });
+  assert.equal(blockedAdvance.response.status, 422);
+  assert.equal(blockedAdvance.payload.error.code, "STOP_LOSS_REQUIRED");
+
+  result = await json(`/api/random-training-sessions/${state.id}/conditional-orders`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ side: "sell", triggerDirection: "cross_down", triggerPriceCents: 1, quantity: 100 }),
+  });
+  assert.equal(result.response.status, 201);
+  const overReservedSell = await json(`/api/random-training-sessions/${state.id}/conditional-orders`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ side: "sell", triggerDirection: "cross_up", triggerPriceCents: 999999, quantity: 100 }),
+  });
+  assert.equal(overReservedSell.response.status, 422);
+  assert.equal(overReservedSell.payload.error.code, "INSUFFICIENT_POSITION");
+  const unaffordableBuy = await json(`/api/random-training-sessions/${state.id}/conditional-orders`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ side: "buy", triggerDirection: "cross_up", triggerPriceCents: 1_000_000, quantity: 100 }),
+  });
+  assert.equal(unaffordableBuy.response.status, 422);
+  assert.equal(unaffordableBuy.payload.error.code, "INSUFFICIENT_CASH");
+
   const blockedRollback = await json(`/api/random-training-sessions/${state.id}/rollback`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ expectedVersion: state.version }),
@@ -101,6 +126,7 @@ try {
     body: JSON.stringify({ expectedVersion: state.version }),
   })).payload;
   assert.equal(state.position.availableQuantity, 100);
+  assert.equal((await json(`/api/random-training-sessions/${state.id}/conditional-orders`)).payload.items.length, 1);
 
   const beforeRestart = {
     id: state.id, version: state.version, cashCents: state.account.cashCents,
@@ -120,6 +146,8 @@ try {
     availableQuantity: state.position.availableQuantity, advancesCompleted: state.advancesCompleted,
     orderCount: state.orders.length, fillCount: state.fills.length,
   }, beforeRestart);
+  const restoredOrders = await json(`/api/random-training-sessions/${state.id}/conditional-orders`);
+  assert.equal(restoredOrders.payload.items[0].status, "pending");
 
   const staleAdvance = await json(`/api/random-training-sessions/${state.id}/advance`, {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -133,6 +161,23 @@ try {
     body: JSON.stringify({ expectedVersion: state.version, side: "sell", quantity: 100 }),
   })).payload;
   assert.equal(state.position.quantity, 0);
+
+  const noStopSession = (await json("/api/random-training-sessions", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ simulationBars: 150, seed: "risk-toggle-e2e", initialCapitalCents: 100_000_000 }),
+  })).payload;
+  let noStopState = (await json(`/api/random-training-sessions/${noStopSession.id}/trade`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expectedVersion: noStopSession.version, side: "buy", quantity: 100 }),
+  })).payload;
+  const riskOff = await json(`/api/random-training-sessions/${noStopState.id}/risk-settings`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requireStopLoss: false }),
+  });
+  assert.equal(riskOff.payload.requireStopLoss, false);
+  noStopState = (await json(`/api/random-training-sessions/${noStopState.id}/advance`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedVersion: noStopState.version }),
+  })).payload;
+  assert.equal(noStopState.advancesCompleted, 1);
 
   const advanceDurations = [];
   while (state.status === "running") {

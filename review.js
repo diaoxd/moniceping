@@ -24,12 +24,54 @@ function resize(canvas) {
   return [context, rect.width, rect.height];
 }
 
+function aggregateIndexForDailyOffset(periodBars, dailyOffset) {
+  if (period === "daily") return dailyOffset;
+  let sourceOffset = 0;
+  for (let index = 0; index < periodBars.length; index += 1) {
+    sourceOffset += periodBars[index].sourceCount;
+    if (dailyOffset < sourceOffset) return index;
+  }
+  return -1;
+}
+
+function drawTradeMarkers(context, periodBars, visibleOffset, barWidth, padding, y) {
+  const dailyBars = payload.state.bars.daily;
+  const markers = payload.state.fills.map((fill) => {
+    const dailyOffset = dailyBars.findIndex((bar) => bar.index === fill.step);
+    const periodIndex = dailyOffset < 0 ? -1 : aggregateIndexForDailyOffset(periodBars, dailyOffset);
+    return { fill, visibleIndex: periodIndex - visibleOffset };
+  }).filter(({ visibleIndex }) => visibleIndex >= 0 && visibleIndex < periodBars.length - visibleOffset);
+  const stacked = new Map();
+  markers.forEach(({ fill, visibleIndex }) => {
+    const key = `${visibleIndex}:${fill.side}`;
+    const ordinal = stacked.get(key) || 0;
+    stacked.set(key, ordinal + 1);
+    const bar = periodBars[visibleOffset + visibleIndex];
+    const x = padding.left + visibleIndex * barWidth + barWidth / 2 + ordinal * 16;
+    const markerY = fill.side === "buy" ? y(bar.lowCents) + 16 : y(bar.highCents) - 16;
+    const color = fill.side === "buy" ? "#f0445f" : "#11c98b";
+    context.fillStyle = color; context.strokeStyle = "#0d1117"; context.lineWidth = 2;
+    context.beginPath(); context.arc(x, markerY, 10, 0, Math.PI * 2); context.fill(); context.stroke();
+    context.fillStyle = "#fff"; context.font = "700 11px system-ui"; context.textAlign = "center"; context.textBaseline = "middle";
+    context.fillText(fill.side === "buy" ? "B" : "S", x, markerY);
+    const quantity = `${fill.quantity.toLocaleString()}股`;
+    context.font = "600 11px system-ui"; context.textAlign = "left";
+    const labelWidth = context.measureText(quantity).width;
+    const labelX = Math.min(x + 13, padding.width - padding.right - labelWidth - 4);
+    context.fillStyle = "rgba(13,17,23,.88)"; context.fillRect(labelX - 3, markerY - 8, labelWidth + 6, 16);
+    context.fillStyle = color; context.fillText(quantity, labelX, markerY);
+  });
+  window.reviewTradeMarkers = markers.map(({ fill, visibleIndex }) => ({ fillId: fill.id, side: fill.side, quantity: fill.quantity, visibleIndex }));
+}
+
 function draw() {
   if (!payload) return;
   const canvas = byId("reviewChart");
-  const bars = payload.state.bars[period].slice(-200);
+  const allBars = payload.state.bars[period];
+  const visibleOffset = Math.max(0, allBars.length - 200);
+  const bars = allBars.slice(visibleOffset);
   const [context, width, height] = resize(canvas);
-  const padding = { left: 12, right: 20, top: 20, bottom: 20 };
+  const padding = { left: 12, right: 90, top: 30, bottom: 30, width };
   const minimum = Math.min(...bars.map((bar) => bar.lowCents));
   const maximum = Math.max(...bars.map((bar) => bar.highCents));
   const range = Math.max(1, maximum - minimum);
@@ -47,6 +89,12 @@ function draw() {
     context.beginPath(); context.moveTo(x, y(bar.highCents)); context.lineTo(x, y(bar.lowCents)); context.stroke();
     context.fillRect(x - Math.max(1, barWidth * 0.27), y(Math.max(bar.openCents, bar.closeCents)), Math.max(2, barWidth * 0.54), Math.max(1, Math.abs(y(bar.openCents) - y(bar.closeCents))));
   });
+  drawTradeMarkers(context, allBars, visibleOffset, barWidth, padding, y);
+}
+
+function renderTradeSummary(fills) {
+  byId("tradeSummaryCount").textContent = `${fills.length} 笔`;
+  byId("tradeSummaryBody").innerHTML = fills.length ? fills.map((fill) => `<tr><td>第 ${fill.step} 步</td><td><span class="trade-side ${fill.side}">${fill.side === "buy" ? "买入" : "卖出"}</span></td><td>${fill.quantity.toLocaleString()} 股</td><td>${money(fill.fillPriceCents)}</td><td>${money(fill.totalFeesCents)}</td><td class="${fill.realizedProfitCents > 0 ? "profit" : fill.realizedProfitCents < 0 ? "loss" : ""}">${fill.side === "sell" ? money(fill.realizedProfitCents) : "--"}</td></tr>`).join("") : `<tr><td colspan="6" class="empty-cell">截至当前步骤暂无交易</td></tr>`;
 }
 
 function render() {
@@ -68,6 +116,7 @@ function render() {
   byId("summary").value = payload.review.summary || "";
   const fills = state.fills.filter((fill) => fill.step === payload.step);
   byId("tradeStrip").textContent = fills.length === 0 ? "该步骤暂无成交" : fills.map((fill) => `${fill.side === "buy" ? "买入" : "卖出"} ${fill.quantity}股 @ ${money(fill.fillPriceCents)}`).join(" · ");
+  renderTradeSummary(state.fills);
   draw();
 }
 

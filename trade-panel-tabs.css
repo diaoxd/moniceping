@@ -1,1 +1,5 @@
 .trade-tab-view{min-height:180px;padding:16px 0}.tab-row{align-items:center;border-bottom:1px solid #202a35;display:flex;font-size:11px;justify-content:space-between;padding:10px 2px}.tab-row strong{font-family:'DM Mono',monospace;text-align:right}.tab-row small{color:#718095;display:block;font-size:9px;margin-top:3px}.tab-row .buy{color:var(--red)}.tab-row .sell{color:var(--green)}.tab-empty{color:#667486;font-size:11px;padding:32px 0;text-align:center}#panelEquityCurve{display:block;height:170px;width:100%}
+.conditional-order-row span { display: flex; flex-direction: column; gap: 3px; }
+.conditional-order-row small { color: #8fa0b2; font-size: 11px; }
+.cancel-order { border: 1px solid #4a5663; background: transparent; color: #d8e0e8; padding: 5px 9px; cursor: pointer; }
+.cancel-order:hover { border-color: #f0445f; color: #f0445f; }

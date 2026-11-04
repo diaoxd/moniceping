@@ -1,0 +1,5 @@
+import assert from "node:assert/strict";import test from "node:test";
+import { createConditionalOrder,isConditionalOrderTriggered,requiredStopLossCoverage } from "../../src/domain/trading/conditional-order.mjs";
+const order=(overrides={})=>createConditionalOrder({id:"c1",sessionId:"s1",side:"buy",triggerDirection:"cross_up",triggerPriceCents:1100,quantity:100,createdStep:0,...overrides});
+test("conditional order triggers only on a future crossing bar",()=>{const value=order();assert.equal(isConditionalOrderTriggered(value,{closeCents:1000},{highCents:1150,lowCents:990},0),false);assert.equal(isConditionalOrderTriggered(value,{closeCents:1000},{highCents:1150,lowCents:990},1),true);assert.equal(isConditionalOrderTriggered(order({triggerDirection:"cross_down",triggerPriceCents:950}),{closeCents:1000},{highCents:1010,lowCents:940},1),true)});
+test("stop loss coverage counts pending cross-down sells",()=>{const result=requiredStopLossCoverage(300,[order({id:"s",side:"sell",triggerDirection:"cross_down",quantity:200}),order({id:"x",side:"sell",triggerDirection:"cross_up",quantity:100})]);assert.deepEqual(result,{required:300,covered:200,missing:100})});

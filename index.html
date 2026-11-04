@@ -105,10 +105,10 @@
             <span class="step-label">第 <b id="stepNumber">42</b> 步</span>
           </div>
           <div class="mode-tabs">
-            <button class="tab active">市价</button
-            ><button class="tab">限价</button
-            ><button class="tab">突破单</button>
+            <button class="tab active" data-order-mode="market">市价单</button
+            ><button class="tab" data-order-mode="conditional">条件单</button>
           </div>
+          <div id="marketOrderForm">
           <div class="position-block">
             <div class="field-head">
               <span>仓位占比</span><strong id="positionPct">20%</strong>
@@ -140,6 +140,15 @@
           <div class="order-buttons">
             <button id="buyBtn" class="order buy-btn">买入</button
             ><button id="sellBtn" class="order sell-btn">卖出</button>
+          </div>
+          </div>
+          <div id="conditionalOrderForm" class="conditional-panel" hidden>
+            <div class="conditional-setting"><span>买入后强制设置止损单</span><label class="switch"><input id="requireStopLoss" type="checkbox" checked><span></span></label></div>
+            <div class="conditional-field"><span>交易方向</span><div class="conditional-options"><button type="button" class="active buy" data-condition-side="buy">条件买入</button><button type="button" data-condition-side="sell">条件卖出</button></div></div>
+            <div class="conditional-field"><span>触发方式</span><div class="conditional-options"><button type="button" class="active" data-trigger-direction="cross_up">股价上穿</button><button type="button" data-trigger-direction="cross_down">股价下穿</button></div></div>
+            <div class="conditional-inputs"><label>监控价格<input id="conditionPrice" type="number" min="0.01" step="0.01"></label><label>数量（股）<input id="conditionQuantity" type="number" min="1" step="100"></label></div>
+            <p id="conditionalStatus" class="conditional-status" role="status"></p>
+            <div class="conditional-actions"><button id="cancelCondition" type="button">切回市价单</button><button id="createCondition" class="primary" type="button">创建条件单</button></div>
           </div>
           <div class="control-buttons">
             <button>自动</button><button id="undoBtn">回退</button
@@ -191,6 +200,16 @@
         <button id="continueTraining" type="button">继续训练</button>
         <button id="startNextRound" class="primary" type="button">下一局</button>
         <button id="confirmExitTraining" class="danger" type="button">确认退出</button>
+      </div>
+    </div>
+  </div>
+  <div id="stopLossRequiredDialog" class="finish-dialog" role="alertdialog" aria-modal="true" aria-labelledby="stopLossRequiredTitle" hidden>
+    <div class="finish-dialog-card risk-dialog-card">
+      <h2 id="stopLossRequiredTitle">请先下止损条件单</h2>
+      <p id="stopLossRequiredMessage">当前持仓尚未设置足额止损保护，不能推进K线。</p>
+      <div class="finish-dialog-actions risk-dialog-actions">
+        <button id="closeStopLossRequired" type="button">暂不处理</button>
+        <button id="openStopLossOrder" class="primary" type="button">去下条件单</button>
       </div>
     </div>
   </div>

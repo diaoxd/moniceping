@@ -129,6 +129,12 @@ try {
     return { selected: state.bars.daily[absoluteIndex], latest: state.bars.daily.at(-1), absoluteIndex };
   });
   await page.waitForFunction(() => document.querySelector(".current-bar-details")?.textContent?.includes("选中 K 线"));
+  const selectedStopLine = await page.evaluate(() => window.trainingChartLayout.selectedStopLine);
+  assert.equal(selectedStopLine.priceCents, selectedBarResult.selected.lowCents);
+  assert.ok(selectedStopLine.startX < selectedStopLine.endX);
+  assert.equal(selectedStopLine.endX, (await page.evaluate(() => window.trainingChartLayout.latestX)));
+  assert.equal(selectedStopLine.label, `最低 ${(selectedBarResult.selected.lowCents / 100).toFixed(2)}`);
+  assert.ok(selectedStopLine.labelY > selectedStopLine.y);
   assert.equal(await page.locator("#openVal").innerText(), (selectedBarResult.selected.openCents / 100).toFixed(2));
   assert.equal(await page.locator("#highVal").innerText(), (selectedBarResult.selected.highCents / 100).toFixed(2));
   assert.equal(await page.locator("#lowVal").innerText(), (selectedBarResult.selected.lowCents / 100).toFixed(2));
@@ -152,6 +158,7 @@ try {
   await page.keyboard.press("ArrowRight");
   await page.waitForFunction(() => document.getElementById("stepNumber")?.textContent === "1");
   assert.match(await page.locator(".current-bar-details").innerText(), /当前 K 线/);
+  assert.equal((await page.evaluate(() => window.trainingChartLayout.selectedStopLine)), null);
   assert.equal(await page.locator("#stepNumber").innerText(), "1");
   const advancedLayout = await page.evaluate(() => window.trainingChartLayout);
   assert.ok(advancedLayout.trainingStartX < advancedLayout.latestX);
@@ -186,6 +193,25 @@ try {
   assert.match(await page.locator("#holding").innerText(), /股 \/ 可卖 0 股/);
   assert.equal(await page.locator("#undoBtn").isDisabled(), true);
 
+  await page.locator("#observeBtn").click();
+  await page.waitForSelector("#stopLossRequiredDialog:not([hidden])");
+  assert.match(await page.locator("#stopLossRequiredDialog").innerText(), /请先下止损条件单/);
+  assert.equal(await page.locator("#stepNumber").innerText(), "1");
+  pageErrors.length = 0;
+  await page.getByRole("button", { name: "去下条件单", exact: true }).click();
+  await page.waitForSelector("#conditionalOrderForm:not([hidden])");
+  assert.equal(await page.locator("#marketOrderForm").isHidden(), true);
+  await page.getByRole("button", { name: "条件卖出", exact: true }).click();
+  await page.getByRole("button", { name: "股价下穿", exact: true }).click();
+  await page.locator("#conditionPrice").fill("0.01");
+  const heldQuantity = await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState).position.quantity);
+  await page.locator("#conditionQuantity").fill(String(heldQuantity));
+  await page.getByRole("button", { name: "创建条件单", exact: true }).click();
+  await page.waitForFunction(() => document.getElementById("conditionalStatus")?.textContent?.includes("创建成功"));
+  await page.getByRole("button", { name: "当前挂单", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector(".trade-tab-view")?.textContent?.includes("下穿"));
+  assert.match(await page.locator(".trade-tab-view").innerText(), /卖出 · 下穿/);
+
   await page.getByRole("button", { name: "明细", exact: true }).click();
   assert.match(await page.locator(".trade-tab-view").innerText(), /买入/);
   await page.getByRole("button", { name: "资金曲线", exact: true }).click();
@@ -200,6 +226,7 @@ try {
   await page.locator("#observeBtn").click();
   await page.waitForFunction(() => document.getElementById("stepNumber")?.textContent === "2");
   assert.match(await page.locator("#holding").innerText(), /可卖 [1-9][0-9,]* 股/);
+  await page.getByRole("button", { name: "市价单", exact: true }).click();
   await page.getByRole("button", { name: "卖出", exact: true }).first().click();
   const availableQuantity = await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState).position.availableQuantity);
   assert.equal(Number(await page.locator("#quantityInput").inputValue()), availableQuantity);
@@ -209,6 +236,15 @@ try {
   await page.locator("#sellBtn").click();
   await page.waitForFunction(() => document.getElementById("tradeCount")?.textContent === "共 2 笔");
   assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState).fills.at(-1).quantity), 100);
+  const dailyTradeMarkers = await page.evaluate(() => window.trainingTradeMarkers);
+  assert.equal(dailyTradeMarkers.length, 2);
+  assert.deepEqual(dailyTradeMarkers.map((marker) => marker.side).sort(), ["buy", "sell"]);
+  assert.ok(dailyTradeMarkers.every((marker) => Number.isFinite(marker.x) && Number.isFinite(marker.y)));
+  await page.getByRole("button", { name: "周线" }).click();
+  assert.equal((await page.evaluate(() => window.trainingTradeMarkers)).length, 2);
+  await page.getByRole("button", { name: "月线" }).click();
+  assert.equal((await page.evaluate(() => window.trainingTradeMarkers)).length, 2);
+  await page.getByRole("button", { name: "日线" }).click();
 
   const completedSessionId = await page.evaluate(async () => {
     let state = JSON.parse(sessionStorage.getItem("randomTrainingState"));
@@ -245,6 +281,20 @@ try {
   await page.waitForSelector("#reviewChart");
   assert.match(await page.locator("#instrument").innerText(), /浏览器测试股/);
   assert.match(page.url(), new RegExp(`review\\.html\\?id=.+&step=0`));
+  await page.locator("#stepSlider").evaluate((slider) => {
+    slider.value = slider.max;
+    slider.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForFunction(() => {
+    const slider = document.getElementById("stepSlider");
+    return document.getElementById("stepLabel")?.textContent?.startsWith(`第 ${slider.max} /`);
+  });
+  const reviewMarkers = await page.evaluate(() => window.reviewTradeMarkers);
+  assert.equal(reviewMarkers.length, 2);
+  assert.deepEqual(reviewMarkers.map((marker) => marker.side).sort(), ["buy", "sell"]);
+  assert.ok(reviewMarkers.every((marker) => marker.quantity > 0));
+  assert.match(await page.locator("#tradeSummaryBody").innerText(), /买入/);
+  assert.match(await page.locator("#tradeSummaryBody").innerText(), /卖出/);
   assert.ok(completedSessionId);
 
   await page.goto(`${base}/random.html`);
@@ -273,10 +323,11 @@ try {
     return next?.status === "running" && next.stockCode !== stockCode;
   }, previousStockCode);
   const nextState = await page.evaluate(() => JSON.parse(sessionStorage.randomTrainingState));
+  const nextRoundDashboard = await page.evaluate(() => fetch("/api/training-dashboard").then((response) => response.json()));
   assert.notEqual(nextState.stockCode, previousStockCode);
   assert.equal(nextState.simulationBars, 150);
-  assert.equal(nextState.initialCapitalCents, finalEquityCents);
-  assert.equal(nextState.account.equityCents, finalEquityCents);
+  assert.equal(nextState.initialCapitalCents, nextRoundDashboard.currentEquityCents);
+  assert.equal(nextState.account.equityCents, nextRoundDashboard.currentEquityCents);
 
   await page.getByRole("button", { name: "结束本局测评" }).click();
   await Promise.all([

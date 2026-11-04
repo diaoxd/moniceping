@@ -289,9 +289,9 @@ export function rollbackTrainingSession(session, expectedVersion) {
   });
 }
 
-export function executeTrainingMarketOrder(session, expectedVersion, { id, fillId, side, quantity }) {
+export function executeTrainingMarketOrder(session, expectedVersion, { id, fillId, side, quantity, allowFinished = false }) {
   assertVersion(session, expectedVersion);
-  if (session.status !== "running") throw sessionError("SESSION_NOT_RUNNING", "训练已结束，不能交易");
+  if (session.status !== "running" && !allowFinished) throw sessionError("SESSION_NOT_RUNNING", "训练已结束，不能交易");
   const bar = session.bars[session.visibleIndex];
   const result = executeMarketOrder({
     order: { side, orderType: "MARKET", quantity },
